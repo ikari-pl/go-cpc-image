@@ -190,10 +190,15 @@ func (tw *ToolbarWidget) openImage() {
 }
 
 // loadImageFromPath opens a file by path and loads it as an image.
+// May be called from any goroutine; UI updates are dispatched to the main thread.
 func (tw *ToolbarWidget) loadImageFromPath(path string) {
+	showErr := func(err error) {
+		fyne.Do(func() { dialog.ShowError(err, tw.app.window) })
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
-		dialog.ShowError(err, tw.app.window)
+		showErr(err)
 		return
 	}
 	defer f.Close()
@@ -209,12 +214,12 @@ func (tw *ToolbarWidget) loadImageFromPath(path string) {
 	case ".scr":
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
-			dialog.ShowError(readErr, tw.app.window)
+			showErr(readErr)
 			return
 		}
 		scrData, palette, scrErr := fileio.LoadSCR(data)
 		if scrErr != nil {
-			dialog.ShowError(scrErr, tw.app.window)
+			showErr(scrErr)
 			return
 		}
 		copy(tw.app.params.Palette[:], palette[:16])
@@ -224,13 +229,15 @@ func (tw *ToolbarWidget) loadImageFromPath(path string) {
 	}
 
 	if err != nil {
-		dialog.ShowError(err, tw.app.window)
+		showErr(err)
 		tw.app.SetStatus("Failed to load image")
 		return
 	}
 
 	directBmp := bitmap.NewDirectBitmapFromImage(img)
-	tw.app.SetSourceImage(directBmp)
+	fyne.Do(func() {
+		tw.app.SetSourceImage(directBmp)
+	})
 	tw.app.SetStatus("Image loaded: " + filepath.Base(path))
 }
 

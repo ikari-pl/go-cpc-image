@@ -655,9 +655,11 @@ func (app *Application) RefreshControls() {
 	app.controls.RefreshFromParams()
 }
 
-// SetStatus updates the status bar text.
+// SetStatus updates the status bar text. Safe to call from any goroutine.
 func (app *Application) SetStatus(status string) {
-	app.statusBar.SetText(status)
+	fyne.Do(func() {
+		app.statusBar.SetText(status)
+	})
 }
 
 // SetAnimationFrames stores loaded GIF frames and shows the animation panel.
