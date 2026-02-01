@@ -102,6 +102,14 @@ type Param struct {
 
 	// Import/Draw mode
 	ModeImpDraw bool `json:"modeImpDraw"`
+
+	// Crop region (normalized 0-1 coordinates)
+	CropEnabled    bool    `json:"cropEnabled,omitempty"`
+	CropLockAspect bool    `json:"cropLockAspect,omitempty"`
+	CropX1         float64 `json:"cropX1,omitempty"`
+	CropY1         float64 `json:"cropY1,omitempty"`
+	CropX2         float64 `json:"cropX2,omitempty"`
+	CropY2         float64 `json:"cropY2,omitempty"`
 }
 
 // NewDefaultParam creates a Param with default values matching the C# version.

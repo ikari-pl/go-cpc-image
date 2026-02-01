@@ -5,11 +5,27 @@ package gui
 import (
 	"image"
 	"image/color"
+	"math"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+)
+
+type cropDragMode int
+
+const (
+	cropDragNew cropDragMode = iota // drawing a new rectangle
+	cropDragMove                    // moving the entire box
+	cropDragN                       // resize north edge
+	cropDragS                       // resize south edge
+	cropDragE                       // resize east edge
+	cropDragW                       // resize west edge
+	cropDragNE                      // resize NE corner
+	cropDragNW                      // resize NW corner
+	cropDragSE                      // resize SE corner
+	cropDragSW                      // resize SW corner
 )
 
 // drawableRaster is a custom widget that wraps a Raster and handles mouse events for drawing.
@@ -19,6 +35,7 @@ type drawableRaster struct {
 	onMouseDown func(fyne.Position, fyne.Size)
 	onMouseDrag func(fyne.Position, fyne.Size)
 	onMouseUp   func(fyne.Position, fyne.Size)
+	dragStarted bool
 }
 
 func newDrawableRaster(raster *canvas.Raster) *drawableRaster {
@@ -36,6 +53,7 @@ func (d *drawableRaster) MinSize() fyne.Size {
 }
 
 func (d *drawableRaster) Tapped(ev *fyne.PointEvent) {
+	// Tapped = click without drag. Fire down+up so a click sets+resets crop anchor.
 	if d.onMouseDown != nil {
 		d.onMouseDown(ev.Position, d.Size())
 	}
@@ -45,12 +63,21 @@ func (d *drawableRaster) Tapped(ev *fyne.PointEvent) {
 }
 
 func (d *drawableRaster) Dragged(ev *fyne.DragEvent) {
+	// Fyne calls Dragged without calling Tapped first, so we fire onMouseDown
+	// on the first Dragged event to initialise the drag anchor.
+	if !d.dragStarted {
+		d.dragStarted = true
+		if d.onMouseDown != nil {
+			d.onMouseDown(ev.Position, d.Size())
+		}
+	}
 	if d.onMouseDrag != nil {
 		d.onMouseDrag(ev.Position, d.Size())
 	}
 }
 
 func (d *drawableRaster) DragEnd() {
+	d.dragStarted = false
 	if d.onMouseUp != nil {
 		d.onMouseUp(fyne.Position{X: -1, Y: -1}, d.Size())
 	}
@@ -97,10 +124,86 @@ func NewPreviewWidget(app *Application) (*PreviewWidget, error) {
 		if nx < 0 || ny < 0 {
 			return
 		}
-		app.cropX1 = nx
-		app.cropY1 = ny
-		app.cropX2 = nx
-		app.cropY2 = ny
+
+		const edgeThreshold = 0.02
+
+		// Normalize existing crop coords
+		cx1, cx2 := app.cropX1, app.cropX2
+		cy1, cy2 := app.cropY1, app.cropY2
+		if cx1 > cx2 {
+			cx1, cx2 = cx2, cx1
+		}
+		if cy1 > cy2 {
+			cy1, cy2 = cy2, cy1
+		}
+
+		nearLeft := math.Abs(nx-cx1) < edgeThreshold
+		nearRight := math.Abs(nx-cx2) < edgeThreshold
+		nearTop := math.Abs(ny-cy1) < edgeThreshold
+		nearBottom := math.Abs(ny-cy2) < edgeThreshold
+		insideX := nx > cx1+edgeThreshold && nx < cx2-edgeThreshold
+		insideY := ny > cy1+edgeThreshold && ny < cy2-edgeThreshold
+
+		var mode cropDragMode
+		if nearTop && nearLeft {
+			mode = cropDragNW
+		} else if nearTop && nearRight {
+			mode = cropDragNE
+		} else if nearBottom && nearLeft {
+			mode = cropDragSW
+		} else if nearBottom && nearRight {
+			mode = cropDragSE
+		} else if nearTop && insideX {
+			mode = cropDragN
+		} else if nearBottom && insideX {
+			mode = cropDragS
+		} else if nearLeft && insideY {
+			mode = cropDragW
+		} else if nearRight && insideY {
+			mode = cropDragE
+		} else if insideX && insideY {
+			mode = cropDragMove
+		} else {
+			mode = cropDragNew
+		}
+
+		app.cropDragMode = mode
+		app.cropDragStartX = nx
+		app.cropDragStartY = ny
+		app.cropOrigX1 = cx1
+		app.cropOrigY1 = cy1
+		app.cropOrigX2 = cx2
+		app.cropOrigY2 = cy2
+
+		switch mode {
+		case cropDragNew:
+			app.cropX1 = nx
+			app.cropY1 = ny
+			app.cropX2 = nx
+			app.cropY2 = ny
+		case cropDragNW:
+			// Anchor at opposite corner (SE)
+			app.cropX1 = cx2
+			app.cropY1 = cy2
+			app.cropX2 = nx
+			app.cropY2 = ny
+		case cropDragNE:
+			app.cropX1 = cx1
+			app.cropY1 = cy2
+			app.cropX2 = nx
+			app.cropY2 = ny
+		case cropDragSW:
+			app.cropX1 = cx2
+			app.cropY1 = cy1
+			app.cropX2 = nx
+			app.cropY2 = ny
+		case cropDragSE:
+			app.cropX1 = cx1
+			app.cropY1 = cy1
+			app.cropX2 = nx
+			app.cropY2 = ny
+		}
+
 		app.cropDragging = true
 		pw.sourceRaster.Refresh()
 	}
@@ -123,6 +226,96 @@ func NewPreviewWidget(app *Application) (*PreviewWidget, error) {
 			ny = 1
 		}
 
+		switch app.cropDragMode {
+		case cropDragMove:
+			dx := nx - app.cropDragStartX
+			dy := ny - app.cropDragStartY
+			newX1 := app.cropOrigX1 + dx
+			newY1 := app.cropOrigY1 + dy
+			newX2 := app.cropOrigX2 + dx
+			newY2 := app.cropOrigY2 + dy
+			if newX1 < 0 {
+				newX2 -= newX1
+				newX1 = 0
+			}
+			if newY1 < 0 {
+				newY2 -= newY1
+				newY1 = 0
+			}
+			if newX2 > 1 {
+				newX1 -= (newX2 - 1)
+				newX2 = 1
+			}
+			if newY2 > 1 {
+				newY1 -= (newY2 - 1)
+				newY2 = 1
+			}
+			app.cropX1 = newX1
+			app.cropY1 = newY1
+			app.cropX2 = newX2
+			app.cropY2 = newY2
+			pw.sourceRaster.Refresh()
+			return
+
+		case cropDragN:
+			app.cropY1 = app.cropOrigY1 + (ny - app.cropDragStartY)
+			if app.cropY1 < 0 {
+				app.cropY1 = 0
+			}
+			if app.cropY1 > app.cropY2 {
+				app.cropY1 = app.cropY2
+			}
+			if app.cropLockAspect && app.cropAspect > 0 {
+				pw.enforceAspectFromEdge(app)
+			}
+			pw.sourceRaster.Refresh()
+			return
+
+		case cropDragS:
+			app.cropY2 = app.cropOrigY2 + (ny - app.cropDragStartY)
+			if app.cropY2 > 1 {
+				app.cropY2 = 1
+			}
+			if app.cropY2 < app.cropY1 {
+				app.cropY2 = app.cropY1
+			}
+			if app.cropLockAspect && app.cropAspect > 0 {
+				pw.enforceAspectFromEdge(app)
+			}
+			pw.sourceRaster.Refresh()
+			return
+
+		case cropDragW:
+			app.cropX1 = app.cropOrigX1 + (nx - app.cropDragStartX)
+			if app.cropX1 < 0 {
+				app.cropX1 = 0
+			}
+			if app.cropX1 > app.cropX2 {
+				app.cropX1 = app.cropX2
+			}
+			if app.cropLockAspect && app.cropAspect > 0 {
+				pw.enforceAspectFromEdge(app)
+			}
+			pw.sourceRaster.Refresh()
+			return
+
+		case cropDragE:
+			app.cropX2 = app.cropOrigX2 + (nx - app.cropDragStartX)
+			if app.cropX2 > 1 {
+				app.cropX2 = 1
+			}
+			if app.cropX2 < app.cropX1 {
+				app.cropX2 = app.cropX1
+			}
+			if app.cropLockAspect && app.cropAspect > 0 {
+				pw.enforceAspectFromEdge(app)
+			}
+			pw.sourceRaster.Refresh()
+			return
+		}
+
+		// cropDragNew, cropDragNW, cropDragNE, cropDragSW, cropDragSE:
+		// All use anchor at cropX1,cropY1 and set cropX2,cropY2
 		if app.cropLockAspect && app.cropAspect > 0 {
 			// Enforce aspect ratio from the anchor point (cropX1, cropY1)
 			dx := nx - app.cropX1
@@ -135,10 +328,6 @@ func NewPreviewWidget(app *Application) (*PreviewWidget, error) {
 					imgAspect = float64(srcB.Dx()) / float64(srcB.Dy())
 				}
 			}
-			// In pixel space: dx_px = dx * imgW, dy_px = dy * imgH
-			// We want dx_px / dy_px = cropAspect
-			// So dx * imgW / (dy * imgH) = cropAspect
-			// dx / dy = cropAspect / imgAspect
 			targetRatio := app.cropAspect / imgAspect
 			if dy != 0 {
 				absDx := dx
@@ -149,16 +338,13 @@ func NewPreviewWidget(app *Application) (*PreviewWidget, error) {
 				if absDy < 0 {
 					absDy = -absDy
 				}
-				// Fit to the smaller dimension
 				if absDx/absDy > targetRatio {
-					// dx is too wide, adjust it
 					sign := 1.0
 					if dx < 0 {
 						sign = -1.0
 					}
 					dx = sign * absDy * targetRatio
 				} else {
-					// dy is too tall, adjust it
 					sign := 1.0
 					if dy < 0 {
 						sign = -1.0
@@ -168,7 +354,6 @@ func NewPreviewWidget(app *Application) (*PreviewWidget, error) {
 			}
 			nx = app.cropX1 + dx
 			ny = app.cropY1 + dy
-			// Clamp again
 			if nx < 0 {
 				nx = 0
 			}
@@ -405,6 +590,29 @@ func (pw *PreviewWidget) drawSourceImage(w, h int) image.Image {
 			}
 		}
 
+		// Draw handles at corners and edge midpoints
+		handleSize := 4
+		handles := [][2]int{
+			{cropPx1, cropPy1},                         // NW
+			{cropPx2 - 1, cropPy1},                     // NE
+			{cropPx1, cropPy2 - 1},                     // SW
+			{cropPx2 - 1, cropPy2 - 1},                 // SE
+			{(cropPx1 + cropPx2) / 2, cropPy1},         // N
+			{(cropPx1 + cropPx2) / 2, cropPy2 - 1},     // S
+			{cropPx1, (cropPy1 + cropPy2) / 2},         // W
+			{cropPx2 - 1, (cropPy1 + cropPy2) / 2},     // E
+		}
+		for _, hp := range handles {
+			for dy := -handleSize; dy <= handleSize; dy++ {
+				for dx := -handleSize; dx <= handleSize; dx++ {
+					px, py := hp[0]+dx, hp[1]+dy
+					if px >= 0 && px < w && py >= 0 && py < h {
+						rgbaImg.Set(px, py, borderColor)
+					}
+				}
+			}
+		}
+
 		return rgbaImg
 	}
 
@@ -589,6 +797,69 @@ func (pw *PreviewWidget) scaleImageWithAspect(src *image.RGBA, w, h int, aspect 
 	}
 
 	return dst
+}
+
+// enforceAspectFromEdge adjusts the perpendicular dimension symmetrically
+// around the center when an edge is dragged with aspect lock on.
+func (pw *PreviewWidget) enforceAspectFromEdge(app *Application) {
+	imgAspect := 1.0
+	if pw.sourceImage != nil {
+		srcB := pw.sourceImage.Bounds()
+		if srcB.Dy() > 0 {
+			imgAspect = float64(srcB.Dx()) / float64(srcB.Dy())
+		}
+	}
+	targetRatio := app.cropAspect / imgAspect
+
+	cx1, cx2 := app.cropX1, app.cropX2
+	cy1, cy2 := app.cropY1, app.cropY2
+	if cx1 > cx2 {
+		cx1, cx2 = cx2, cx1
+	}
+	if cy1 > cy2 {
+		cy1, cy2 = cy2, cy1
+	}
+
+	w := cx2 - cx1
+	h := cy2 - cy1
+	centerX := (cx1 + cx2) / 2
+	centerY := (cy1 + cy2) / 2
+
+	currentRatio := 0.0
+	if h > 0 {
+		currentRatio = w / h
+	}
+
+	if currentRatio > targetRatio {
+		// Too wide, expand height
+		newH := w / targetRatio
+		cy1 = centerY - newH/2
+		cy2 = centerY + newH/2
+	} else {
+		// Too tall, expand width
+		newW := h * targetRatio
+		cx1 = centerX - newW/2
+		cx2 = centerX + newW/2
+	}
+
+	// Clamp
+	if cx1 < 0 {
+		cx1 = 0
+	}
+	if cy1 < 0 {
+		cy1 = 0
+	}
+	if cx2 > 1 {
+		cx2 = 1
+	}
+	if cy2 > 1 {
+		cy2 = 1
+	}
+
+	app.cropX1 = cx1
+	app.cropY1 = cy1
+	app.cropX2 = cx2
+	app.cropY2 = cy2
 }
 
 // screenToNormalized converts a screen position within the source raster widget

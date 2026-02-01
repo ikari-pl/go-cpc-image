@@ -58,8 +58,15 @@ type Application struct {
 	cropX1, cropY1 float64 // top-left normalized 0-1
 	cropX2, cropY2 float64 // bottom-right normalized 0-1
 	cropLockAspect bool
-	cropAspect     float64 // 8.0/5.0 for 320x200
+	cropAspect     float64 // dynamic, based on current screen mode
 	cropDragging   bool    // true while user is drawing a crop rectangle
+	cropDragMode   cropDragMode
+	cropDragStartX float64
+	cropDragStartY float64
+	cropOrigX1     float64
+	cropOrigY1     float64
+	cropOrigX2     float64
+	cropOrigY2     float64
 
 	// Animation state
 	animFrames []*bitmap.DirectBitmap  // loaded GIF frames
@@ -660,6 +667,29 @@ func (app *Application) SetStatus(status string) {
 	fyne.Do(func() {
 		app.statusBar.SetText(status)
 	})
+}
+
+// syncCropToParams copies the GUI crop state into params for project save.
+func (app *Application) syncCropToParams() {
+	app.params.CropEnabled = app.cropEnabled
+	app.params.CropLockAspect = app.cropLockAspect
+	app.params.CropX1 = app.cropX1
+	app.params.CropY1 = app.cropY1
+	app.params.CropX2 = app.cropX2
+	app.params.CropY2 = app.cropY2
+}
+
+// syncCropFromParams restores the GUI crop state from loaded params.
+func (app *Application) syncCropFromParams() {
+	app.cropEnabled = app.params.CropEnabled
+	app.cropLockAspect = app.params.CropLockAspect
+	app.cropX1 = app.params.CropX1
+	app.cropY1 = app.params.CropY1
+	app.cropX2 = app.params.CropX2
+	app.cropY2 = app.params.CropY2
+	if app.cropLockAspect {
+		app.cropAspect = float64(app.params.GetScreenWidth()) / float64(app.params.GetScreenHeight())
+	}
 }
 
 // SetAnimationFrames stores loaded GIF frames and shows the animation panel.

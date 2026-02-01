@@ -330,9 +330,9 @@ func (cw *ControlsWidget) setupCropControls() {
 		}
 	})
 
-	cw.cropLockCheck = widget.NewCheck("Lock 8:5", func(checked bool) {
+	cw.cropLockCheck = widget.NewCheck("Lock aspect", func(checked bool) {
 		cw.app.cropLockAspect = checked
-		cw.app.cropAspect = 8.0 / 5.0
+		cw.updateCropAspect()
 	})
 
 	cw.cropResetBtn = widget.NewButton("Reset Crop", func() {
@@ -558,6 +558,13 @@ func (cw *ControlsWidget) onModeChanged(mode string) {
 	}
 }
 
+// updateCropAspect recomputes the crop aspect ratio from the current screen mode parameters.
+func (cw *ControlsWidget) updateCropAspect() {
+	if cw.app.cropLockAspect {
+		cw.app.cropAspect = float64(cw.app.params.GetScreenWidth()) / float64(cw.app.params.GetScreenHeight())
+	}
+}
+
 // onSizeChanged handles column/line count changes.
 func (cw *ControlsWidget) onSizeChanged(text string) {
 	if cw.refreshing {
@@ -572,6 +579,7 @@ func (cw *ControlsWidget) onSizeChanged(text string) {
 	}
 
 	cw.updateResLabel()
+	cw.updateCropAspect()
 
 	if cw.autoConvert != nil && cw.autoConvert.Checked {
 		cw.app.TriggerConversion()
@@ -709,6 +717,10 @@ func (cw *ControlsWidget) RefreshFromParams() {
 	cw.sizeYEntry.SetText(strconv.Itoa(params.SizeY))
 	cw.posXEntry.SetText(strconv.Itoa(params.PosX))
 	cw.posYEntry.SetText(strconv.Itoa(params.PosY))
+
+	// Update crop checkboxes
+	cw.cropEnableCheck.SetChecked(cw.app.cropEnabled)
+	cw.cropLockCheck.SetChecked(cw.app.cropLockAspect)
 
 	cw.updateResLabel()
 }

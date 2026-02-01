@@ -588,6 +588,7 @@ func (tw *ToolbarWidget) saveProject() {
 			if srcImg == nil {
 				return
 			}
+			tw.app.syncCropToParams()
 			if err := fileio.SaveProject(path, tw.app.params, srcImg.ToRGBA()); err != nil {
 				dialog.ShowError(err, tw.app.window)
 				tw.app.SetStatus("Failed to save project")
@@ -614,6 +615,7 @@ func (tw *ToolbarWidget) saveProject() {
 		if srcImg == nil {
 			return
 		}
+		tw.app.syncCropToParams()
 		if saveErr := fileio.SaveProject(path, tw.app.params, srcImg.ToRGBA()); saveErr != nil {
 			dialog.ShowError(saveErr, tw.app.window)
 			tw.app.SetStatus("Failed to save project")
@@ -672,6 +674,9 @@ func (tw *ToolbarWidget) loadProjectFromPath(path string) {
 
 	// Apply loaded params
 	*tw.app.params = *params
+
+	// Restore crop state from params
+	tw.app.syncCropFromParams()
 
 	// Convert *image.RGBA to DirectBitmap and set as source
 	directBmp := bitmap.NewDirectBitmapFromImage(sourceRGBA)
