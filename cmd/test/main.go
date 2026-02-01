@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Testing ConvImgCpc Go port...")
+	fmt.Println("Testing go-cpc-image...")
 
 	// Test RgbColor
 	color := bitmap.NewRgbColor(255, 128, 64)

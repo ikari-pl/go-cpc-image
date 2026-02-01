@@ -1,4 +1,4 @@
-// Package convert provides the main image conversion pipeline for ConvImgCpc.
+// Package convert provides the main image conversion pipeline for go-cpc-image.
 // This file contains the main Convert function that orchestrates Pass1 and Pass2.
 package convert
 
@@ -67,6 +67,7 @@ func Convert(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Param, noInfo boo
 	// use the same pixel stride as the converter (SetPixelCpc).
 	if dest.BitmapCpc != nil {
 		dest.BitmapCpc.VirtualMode = prm.VirtualMode
+		dest.BitmapCpc.YEgx = prm.YEgx
 		dest.BitmapCpc.NumCol = prm.NumCols
 		dest.BitmapCpc.NumLig = prm.NumLines
 	}

@@ -2,6 +2,9 @@
 package fileio
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,7 +31,7 @@ func TestFormatDsk(t *testing.T) {
 	dsk.FormatDsk()
 
 	// Verify ID string
-	expectedID := "EXTENDED CPC DSK File\r\nDisk-Info\r\nConvImgCpc    "
+	expectedID := "EXTENDED CPC DSK File\r\nDisk-Info\r\ngo-cpc-image  "
 	id := string(dsk.Infos.ID[:])
 	if id != expectedID {
 		t.Errorf("ID string mismatch:\ngot  %q\nwant %q", id, expectedID)
@@ -299,5 +302,372 @@ func TestDskTrackSizeTable(t *testing.T) {
 		if dsk.Infos.TrackSizeTable[i] != 0 {
 			t.Errorf("Entry %d beyond MaxTracks size = 0x%02X, want 0x00", i, dsk.Infos.TrackSizeTable[i])
 		}
+	}
+}
+
+// createTestDSK creates a temporary DSK file for testing and returns its path.
+func createTestDSK(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	dskPath := filepath.Join(dir, "test.dsk")
+	dsk := NewGestDSK()
+	if err := dsk.Save(dskPath); err != nil {
+		t.Fatalf("failed to create test DSK: %v", err)
+	}
+	return dskPath
+}
+
+// TestFormatDsk80 tests 80-track DSK formatting
+func TestFormatDsk80(t *testing.T) {
+	dsk := &GestDSK{}
+	dsk.FormatDsk80()
+
+	if dsk.Infos.NbTracks != 80 {
+		t.Errorf("NbTracks = %d, want 80", dsk.Infos.NbTracks)
+	}
+	if dsk.Infos.NbHeads != 1 {
+		t.Errorf("NbHeads = %d, want 1", dsk.Infos.NbHeads)
+	}
+
+	// Verify 80-track DSK has more capacity
+	dsk40 := NewGestDSK()
+	if dsk.MaxBloc() <= dsk40.MaxBloc() {
+		t.Errorf("80-track maxBloc (%d) should be greater than 40-track maxBloc (%d)", dsk.MaxBloc(), dsk40.MaxBloc())
+	}
+}
+
+// TestDskFileEntry tests the DskFileEntry struct
+func TestDskFileEntry(t *testing.T) {
+	entry := DskFileEntry{
+		Name:     "TEST.BIN",
+		Size:     1024,
+		LoadAddr: 0xC000,
+		ExecAddr: 0xC000,
+	}
+
+	if entry.Name != "TEST.BIN" {
+		t.Errorf("Name = %q, want %q", entry.Name, "TEST.BIN")
+	}
+	if entry.Size != 1024 {
+		t.Errorf("Size = %d, want 1024", entry.Size)
+	}
+	if entry.LoadAddr != 0xC000 {
+		t.Errorf("LoadAddr = 0x%04X, want 0xC000", entry.LoadAddr)
+	}
+	if entry.ExecAddr != 0xC000 {
+		t.Errorf("ExecAddr = 0x%04X, want 0xC000", entry.ExecAddr)
+	}
+}
+
+// TestListFilesEmpty tests listing files on an empty DSK
+func TestListFilesEmpty(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	files, err := ListFiles(dskPath)
+	if err != nil {
+		t.Fatalf("ListFiles() error = %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("ListFiles() returned %d files, want 0", len(files))
+	}
+}
+
+// TestListFilesNonExistent tests listing files on a non-existent DSK
+func TestListFilesNonExistent(t *testing.T) {
+	_, err := ListFiles("/nonexistent/path/test.dsk")
+	if err == nil {
+		t.Error("ListFiles() expected error for non-existent file")
+	}
+}
+
+// TestAddFileAndListFiles tests adding a file and then listing it
+func TestAddFileAndListFiles(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	data := make([]byte, 256)
+	for i := range data {
+		data[i] = byte(i)
+	}
+
+	err := AddFile(dskPath, "TEST.BIN", data, 0xC000, 0xC000)
+	if err != nil {
+		t.Fatalf("AddFile() error = %v", err)
+	}
+
+	files, err := ListFiles(dskPath)
+	if err != nil {
+		t.Fatalf("ListFiles() error = %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("ListFiles() returned %d files, want 1", len(files))
+	}
+
+	if !strings.HasPrefix(files[0].Name, "TEST") {
+		t.Errorf("file name = %q, want prefix TEST", files[0].Name)
+	}
+
+	if files[0].Size == 0 {
+		t.Error("file size should not be 0")
+	}
+}
+
+// TestAddFileDuplicate tests adding a duplicate file
+func TestAddFileDuplicate(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	data := make([]byte, 128)
+	err := AddFile(dskPath, "DUP.BIN", data, 0x4000, 0x4000)
+	if err != nil {
+		t.Fatalf("first AddFile() error = %v", err)
+	}
+
+	err = AddFile(dskPath, "DUP.BIN", data, 0x4000, 0x4000)
+	if err == nil {
+		t.Error("second AddFile() expected error for duplicate file")
+	}
+}
+
+// TestRemoveFile tests removing a file from DSK
+func TestRemoveFile(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	data := make([]byte, 128)
+	err := AddFile(dskPath, "DEL.BIN", data, 0x4000, 0x4000)
+	if err != nil {
+		t.Fatalf("AddFile() error = %v", err)
+	}
+
+	// Verify file exists
+	files, _ := ListFiles(dskPath)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file before remove, got %d", len(files))
+	}
+
+	// Remove it
+	err = RemoveFile(dskPath, "DEL.BIN")
+	if err != nil {
+		t.Fatalf("RemoveFile() error = %v", err)
+	}
+
+	// Verify file is gone
+	files, _ = ListFiles(dskPath)
+	if len(files) != 0 {
+		t.Errorf("expected 0 files after remove, got %d", len(files))
+	}
+}
+
+// TestRemoveFileNotFound tests removing a non-existent file
+func TestRemoveFileNotFound(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	err := RemoveFile(dskPath, "NOPE.BIN")
+	if err == nil {
+		t.Error("RemoveFile() expected error for non-existent file")
+	}
+}
+
+// TestAddMultipleFiles tests adding several files
+func TestAddMultipleFiles(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	for i := 0; i < 5; i++ {
+		name := strings.ToUpper(string(rune('A'+i))) + ".BIN"
+		data := make([]byte, 512)
+		err := AddFile(dskPath, name, data, 0x4000, 0x4000)
+		if err != nil {
+			t.Fatalf("AddFile(%q) error = %v", name, err)
+		}
+	}
+
+	files, err := ListFiles(dskPath)
+	if err != nil {
+		t.Fatalf("ListFiles() error = %v", err)
+	}
+	if len(files) != 5 {
+		t.Errorf("ListFiles() returned %d files, want 5", len(files))
+	}
+}
+
+// TestSaveAutoNumbered tests auto-numbered file saving
+func TestSaveAutoNumbered(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	data := make([]byte, 256)
+
+	name1, err := SaveAutoNumbered(dskPath, data, "IMG", "SCR", 0xC000, 0xC000)
+	if err != nil {
+		t.Fatalf("first SaveAutoNumbered() error = %v", err)
+	}
+	if name1 != "IMG00.SCR" {
+		t.Errorf("first filename = %q, want IMG00.SCR", name1)
+	}
+
+	name2, err := SaveAutoNumbered(dskPath, data, "IMG", "SCR", 0xC000, 0xC000)
+	if err != nil {
+		t.Fatalf("second SaveAutoNumbered() error = %v", err)
+	}
+	if name2 != "IMG01.SCR" {
+		t.Errorf("second filename = %q, want IMG01.SCR", name2)
+	}
+}
+
+// TestSaveAutoNumberedDifferentPrefixes tests different prefixes don't interfere
+func TestSaveAutoNumberedDifferentPrefixes(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	data := make([]byte, 128)
+
+	name1, err := SaveAutoNumbered(dskPath, data, "AAA", "BIN", 0x4000, 0x4000)
+	if err != nil {
+		t.Fatalf("SaveAutoNumbered(AAA) error = %v", err)
+	}
+	if name1 != "AAA00.BIN" {
+		t.Errorf("got %q, want AAA00.BIN", name1)
+	}
+
+	name2, err := SaveAutoNumbered(dskPath, data, "BBB", "BIN", 0x4000, 0x4000)
+	if err != nil {
+		t.Fatalf("SaveAutoNumbered(BBB) error = %v", err)
+	}
+	if name2 != "BBB00.BIN" {
+		t.Errorf("got %q, want BBB00.BIN", name2)
+	}
+}
+
+// TestDskSaveLoadRoundTrip tests saving and reloading a DSK with files
+func TestDskSaveLoadRoundTrip(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	data := make([]byte, 1024)
+	for i := range data {
+		data[i] = byte(i & 0xFF)
+	}
+
+	err := AddFile(dskPath, "ROUND.SCR", data, 0xC000, 0xC000)
+	if err != nil {
+		t.Fatalf("AddFile() error = %v", err)
+	}
+
+	// Verify file persists after reload
+	files, err := ListFiles(dskPath)
+	if err != nil {
+		t.Fatalf("ListFiles() error = %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+
+	// Check the DSK file actually exists on disk
+	info, err := os.Stat(dskPath)
+	if err != nil {
+		t.Fatalf("DSK file stat error: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Error("DSK file is empty")
+	}
+}
+
+// TestMaxBloc tests max block calculation for different formats
+func TestMaxBloc(t *testing.T) {
+	dsk40 := NewGestDSK()
+	mb40 := dsk40.MaxBloc()
+
+	dsk80 := &GestDSK{}
+	dsk80.FormatDsk80()
+	mb80 := dsk80.MaxBloc()
+
+	if mb40 <= 0 {
+		t.Errorf("40-track maxBloc = %d, want > 0", mb40)
+	}
+	if mb80 <= 0 {
+		t.Errorf("80-track maxBloc = %d, want > 0", mb80)
+	}
+	if mb80 <= mb40 {
+		t.Errorf("80-track maxBloc (%d) should be > 40-track maxBloc (%d)", mb80, mb40)
+	}
+
+	t.Logf("40-track: %d blocks (%d KB), 80-track: %d blocks (%d KB)", mb40, mb40, mb80, mb80)
+}
+
+// TestReadBloc tests block reading
+func TestReadBloc(t *testing.T) {
+	dsk := NewGestDSK()
+	buf := dsk.readBloc(2)
+
+	if len(buf) != 1024 {
+		t.Errorf("readBloc returned %d bytes, want 1024", len(buf))
+	}
+}
+
+// TestAddFileToNonExistentDSK tests error when DSK doesn't exist
+func TestAddFileToNonExistentDSK(t *testing.T) {
+	err := AddFile("/nonexistent/test.dsk", "TEST.BIN", []byte{1, 2, 3}, 0x4000, 0x4000)
+	if err == nil {
+		t.Error("expected error for non-existent DSK")
+	}
+}
+
+// TestRemoveFileFromNonExistentDSK tests error when DSK doesn't exist
+func TestRemoveFileFromNonExistentDSK(t *testing.T) {
+	err := RemoveFile("/nonexistent/test.dsk", "TEST.BIN")
+	if err == nil {
+		t.Error("expected error for non-existent DSK")
+	}
+}
+
+// TestSaveAutoNumberedNonExistentDSK tests error when DSK doesn't exist
+func TestSaveAutoNumberedNonExistentDSK(t *testing.T) {
+	_, err := SaveAutoNumbered("/nonexistent/test.dsk", []byte{1}, "IMG", "SCR", 0xC000, 0xC000)
+	if err == nil {
+		t.Error("expected error for non-existent DSK")
+	}
+}
+
+// TestAddFileWithLargeData tests adding a larger file
+func TestAddFileWithLargeData(t *testing.T) {
+	dskPath := createTestDSK(t)
+
+	// 16KB file (typical SCR size)
+	data := make([]byte, 16384)
+	for i := range data {
+		data[i] = byte(i & 0xFF)
+	}
+
+	err := AddFile(dskPath, "BIG.SCR", data, 0xC000, 0xC000)
+	if err != nil {
+		t.Fatalf("AddFile() error = %v", err)
+	}
+
+	files, err := ListFiles(dskPath)
+	if err != nil {
+		t.Fatalf("ListFiles() error = %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	// Size includes the 128-byte AMSDOS header
+	if files[0].Size < 16384 {
+		t.Errorf("file size = %d, want >= 16384", files[0].Size)
+	}
+}
+
+// TestFormat80TrackSaveLoad tests save/load round-trip for 80-track DSK
+func TestFormat80TrackSaveLoad(t *testing.T) {
+	dir := t.TempDir()
+	dskPath := filepath.Join(dir, "test80.dsk")
+
+	dsk := &GestDSK{}
+	dsk.FormatDsk80()
+	if err := dsk.Save(dskPath); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	dsk2 := NewGestDSK()
+	if err := dsk2.Load(dskPath); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if dsk2.Infos.NbTracks != 80 {
+		t.Errorf("loaded NbTracks = %d, want 80", dsk2.Infos.NbTracks)
 	}
 }

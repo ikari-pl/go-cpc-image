@@ -169,7 +169,7 @@ func TestWriteHeaderFull(t *testing.T) {
 			t.Fatal(err)
 		}
 		s := buf.String()
-		if !strings.Contains(s, "ConvImgCpc") {
+		if !strings.Contains(s, "go-cpc-image") {
 			t.Error("missing generator comment")
 		}
 		if !strings.Contains(s, "Mode 0") {
@@ -187,7 +187,7 @@ func TestWriteHeaderFull(t *testing.T) {
 			t.Fatal(err)
 		}
 		s := buf.String()
-		if strings.Contains(s, "ConvImgCpc") {
+		if strings.Contains(s, "go-cpc-image") {
 			t.Error("should not have generator comment with empty version")
 		}
 		if !strings.Contains(s, "Mode 1") {

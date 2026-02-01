@@ -1,4 +1,4 @@
-// Package convert provides image conversion functionality for the ConvImgCpc Go rewrite.
+// Package convert provides image conversion functionality for go-cpc-image.
 package convert
 
 import (

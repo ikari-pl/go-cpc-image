@@ -1,4 +1,4 @@
-// Package convert provides palette optimization functionality for ConvImgCpc.
+// Package convert provides palette optimization functionality for go-cpc-image.
 // This file contains the FindBestColors function and k-means QuantizePalette.
 package convert
 
@@ -129,7 +129,7 @@ func FindBestColors(maxPen int, lockState [16]int, prm *Param, palette *[16]int)
 					oldDist := 0
 
 					// Try multiple search passes with decreasing frequency thresholds
-					for pass := 4; pass > 0; pass-- {
+					for pass := 3; pass >= 0; pass-- {
 						for i := 0; i < FindMax; i++ {
 							freq := 0
 							for y := 0; y < 272; y++ {
@@ -138,9 +138,10 @@ func FindBestColors(maxPen int, lockState [16]int, prm *Param, palette *[16]int)
 
 							if freq > maxFreq>>uint(pass) {
 								c := cpc.GetColor(i, prm.CpcPlus)
-								dist = int(c.R-firstColor.R)*int(c.R-firstColor.R)*prm.CoefR +
-									int(c.V-firstColor.V)*int(c.V-firstColor.V)*prm.CoefV +
-									int(c.B-firstColor.B)*int(c.B-firstColor.B)*prm.CoefB
+								dr := int(c.R) - int(firstColor.R)
+								dv := int(c.V) - int(firstColor.V)
+								db := int(c.B) - int(firstColor.B)
+								dist = dr*dr*prm.CoefR + dv*dv*prm.CoefV + db*db*prm.CoefB
 
 								if dist > oldDist {
 									oldDist = dist
@@ -253,9 +254,10 @@ func FindNearestCluster(prm *Param, color bitmap.RgbColor) *KMeansCluster {
 		switch Distance(prm.KMeansDist) {
 		case DISTANCE_EUCLIDE:
 			// Weighted Euclidean distance
-			dist = int(r-cNiv.R)*int(r-cNiv.R)*prm.CoefR +
-				int(v-cNiv.V)*int(v-cNiv.V)*prm.CoefV +
-				int(b-cNiv.B)*int(b-cNiv.B)*prm.CoefB
+			dr := int(r) - int(cNiv.R)
+			dv := int(v) - int(cNiv.V)
+			db := int(b) - int(cNiv.B)
+			dist = dr*dr*prm.CoefR + dv*dv*prm.CoefV + db*db*prm.CoefB
 		case DISTANCE_SUP:
 			// Maximum (supremum) distance
 			dr := abs(int(r) - int(cNiv.R))
@@ -326,10 +328,13 @@ func QuantizePalette(img *bitmap.DirectBitmap, prm *Param) {
 
 	// Apply quantized colors back to image
 	for y := 0; y < height; y += stepY {
-		for x := 0; x < width; x++ {
+		Tx := cpc.PixelWidth(prm.VirtualMode, y, 0)
+		for x := 0; x < width; x += Tx {
 			originalColor := img.GetPixelColor(x, y)
-			quantizedLevel := FindNearestCluster(prm, originalColor)
-			img.SetPixelColor(x, y, quantizedLevel.CentroidColor)
+			nearest := FindNearestCluster(prm, originalColor)
+			for dx := 0; dx < Tx && x+dx < width; dx++ {
+				img.SetPixelColor(x+dx, y, nearest.CentroidColor)
+			}
 		}
 	}
 }

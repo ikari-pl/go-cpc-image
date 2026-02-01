@@ -1,4 +1,4 @@
-// Package convert provides standard mode conversion for ConvImgCpc.
+// Package convert provides standard mode conversion for go-cpc-image.
 // This file contains the ConvertStd function for modes 0, 1, 2, and EGX 3/4.
 package convert
 
@@ -36,8 +36,8 @@ func (sc *StandardConverter) Convert(source *bitmap.DirectBitmap, prm *Param, de
 	// Process each scanline pair
 	for y := 0; y < height; y += 2 {
 		// Calculate pixel step and max pens for this scanline
-		Tx := cpc.PixelWidth(prm.VirtualMode, y, 0) // Using yEgx=0 for standard processing
-		maxPen = cpc.MaxPen(prm.VirtualMode, y, 0)
+		Tx := cpc.PixelWidth(prm.VirtualMode, y, prm.YEgx)
+		maxPen = cpc.MaxPen(prm.VirtualMode, y, prm.YEgx)
 
 		// Process each pixel group
 		for x := 0; x < width; x += Tx {
@@ -50,9 +50,10 @@ func (sc *StandardConverter) Convert(source *bitmap.DirectBitmap, prm *Param, de
 				c := colorTable[i][y>>1] // Use scanline-specific palette
 				if prm.DisableState[i] == 0 {
 					// Calculate weighted Euclidean distance
-					dist := int(c.R-pix.R)*int(c.R-pix.R)*prm.CoefR +
-						int(c.V-pix.V)*int(c.V-pix.V)*prm.CoefV +
-						int(c.B-pix.B)*int(c.B-pix.B)*prm.CoefB
+					dr := int(c.R) - int(pix.R)
+					dv := int(c.V) - int(pix.V)
+					db := int(c.B) - int(pix.B)
+					dist := dr*dr*prm.CoefR + dv*dv*prm.CoefV + db*db*prm.CoefB
 
 					if dist < oldDist {
 						chosen = i
@@ -107,9 +108,10 @@ func (ec *EGXConverter) Convert(source *bitmap.DirectBitmap, prm *Param, dest *I
 			for i := 0; i < maxPen; i++ {
 				c := colorTable[i][y>>1]
 				if prm.DisableState[i] == 0 {
-					dist := int(c.R-pix.R)*int(c.R-pix.R)*prm.CoefR +
-						int(c.V-pix.V)*int(c.V-pix.V)*prm.CoefV +
-						int(c.B-pix.B)*int(c.B-pix.B)*prm.CoefB
+					dr := int(c.R) - int(pix.R)
+					dv := int(c.V) - int(pix.V)
+					db := int(c.B) - int(pix.B)
+					dist := dr*dr*prm.CoefR + dv*dv*prm.CoefV + db*db*prm.CoefB
 
 					if dist < oldDist {
 						chosen = i
@@ -164,12 +166,18 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Param, splitCount *
 	// Initialize with current lock states
 	copy(MemoLockState[:], prm.LockState[:])
 
-	maxPen := cpc.MaxPen(prm.VirtualMode, 0, 0) // Max pens for actual mode
+	yEgx := prm.YEgx
+	if dest.BitmapCpc != nil {
+		yEgx = dest.BitmapCpc.YEgx
+	}
+
+	maxPen := cpc.MaxPen(prm.VirtualMode, 2, yEgx) // Max pens for the wider mode
 
 	// Handle EGX modes (3, 4)
 	if prm.VirtualMode == 3 || prm.VirtualMode == 4 {
-		// For EGX modes, find palette for the specific EGX line pattern
-		newMax := cpc.MaxPen(prm.VirtualMode, 0, 0) // yEgx would be passed from context
+		// First find colors for the narrower mode (fewer pens), then lock them
+		// and find remaining colors for the wider mode
+		newMax := cpc.MaxPen(prm.VirtualMode, yEgx, yEgx)
 		FindBestColors(newMax, MemoLockState, prm, &dest.BitmapCpc.Palette)
 		for i := 0; i < newMax; i++ {
 			MemoLockState[i] = 1
@@ -178,16 +186,35 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Param, splitCount *
 
 	// Handle Mode X (5) and Split mode (6)
 	if prm.VirtualMode == 5 || prm.VirtualMode == 6 {
-		// These would use FindBestColorsModeX and FindBestColorsModeSplit
-		// For now, using standard palette search
-		FindBestColors(maxPen, MemoLockState, prm, &dest.BitmapCpc.Palette)
+		// colMode5 is [272][16] to match the converter signatures
+		var colMode5 [272][16]int
 
-		if prm.VirtualMode == 6 {
+		if prm.VirtualMode == 5 {
+			mxConv := NewModeXConverter(prm, prm.CpcPlus)
+			// Copy global frequency table into the converter
+			mxConv.colorFrequency = colorFrequency
+			*splitCount = mxConv.FindBestColorsModeX(&colMode5, MemoLockState, prm.GetScreenHeight())
+		} else {
+			spConv := NewSplitConverter(prm, prm.CpcPlus)
+			// Copy global frequency table into the converter
+			spConv.colorFrequency = colorFrequency
+			*splitCount = spConv.FindBestColorsModeSplit(&colMode5, MemoLockState, prm.GetScreenHeight())
 			maxPen = 9 // Split mode uses 9 pens
 		}
 
+		// Store per-line palette into dest.SplitModeColors
+		halfLines := prm.NumLines
+		if halfLines > len(dest.SplitModeColors) {
+			halfLines = len(dest.SplitModeColors)
+		}
+		for y := 0; y < halfLines; y++ {
+			for i := 0; i < maxPen && i < 16; i++ {
+				dest.SplitModeColors[y][i] = colMode5[y][i]
+			}
+		}
+
 		// Fill color table for Mode X/Split
-		for y := 0; y < (prm.NumLines >> 1); y++ {
+		for y := 0; y < halfLines; y++ {
 			for i := 0; i < maxPen; i++ {
 				colorTable[i][y] = cpc.GetColor(dest.SplitModeColors[y][i], prm.CpcPlus)
 			}
@@ -202,7 +229,7 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Param, splitCount *
 		// so we must fill colorTable for all CPC line indices 0..NumLines-1.
 		for line := 0; line < prm.NumLines; line++ {
 			yPixel := line * 2 // pixel Y for this CPC line
-			maxPen = cpc.MaxPen(prm.VirtualMode, yPixel, 0)
+			maxPen = cpc.MaxPen(prm.VirtualMode, yPixel, yEgx)
 			for i := 0; i < maxPen; i++ {
 				colorTable[i][line] = cpc.GetColor(dest.BitmapCpc.Palette[i], prm.CpcPlus)
 			}
@@ -212,27 +239,55 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Param, splitCount *
 	// Dispatch to appropriate converter based on virtual mode
 	switch prm.VirtualMode {
 	case 5:
-		// ConvertModeX(source, prm, dest, colorTable) - would be implemented
-		// For now, fall back to standard
-		ConvertStd(source, prm, dest, maxPen, colorTable)
+		// Mode X: 2 fixed + 2 variable colors per line
+		mxConv := NewModeXConverter(prm, prm.CpcPlus)
+		var mxColorTable [4][272]bitmap.RgbColor
+		for i := 0; i < 4; i++ {
+			for y := 0; y < 272; y++ {
+				mxColorTable[i][y] = colorTable[i][y]
+			}
+		}
+		mxConv.ConvertModeX(source, dest, &mxColorTable)
 
 	case 6:
-		// ConvertSplit(source, prm, dest, colorTable) - would be implemented
-		// For now, fall back to standard
-		ConvertStd(source, prm, dest, maxPen, colorTable)
+		// Split: 3 fixed + 6 split colors per line
+		spConv := NewSplitConverter(prm, prm.CpcPlus)
+		var spColorTable [9][272]bitmap.RgbColor
+		for i := 0; i < 9; i++ {
+			for y := 0; y < 272; y++ {
+				spColorTable[i][y] = colorTable[i][y]
+			}
+		}
+		spConv.ConvertSplit(source, dest, &spColorTable)
 
 	case 7:
-		// ConvertAscUt(source, prm, dest, colorTable) - would be implemented
-		// For now, fall back to standard
-		ConvertStd(source, prm, dest, maxPen, colorTable)
+		// ASC-UT: ASCII conversion with precalculated trame patterns
+		ascConv := NewAsciiConverter(prm, dest.BitmapCpc != nil && dest.BitmapCpc.CpcPlus)
+		trameM1 := GetDefaultPatternM1()
+		ascConv.ConvertAscUt(source, dest, &colorTable, &trameM1)
 
-	case 8, 9, 10:
-		// ConvertAscii(source, prm, dest, maxPen, colorTable) - would be implemented
-		// For now, fall back to standard
-		ConvertStd(source, prm, dest, maxPen, colorTable)
+	case 8:
+		// ASC0: Mode 0 encoding, 8x16 blocks, 16 colors
+		ascConv := NewAsciiConverter(prm, dest.BitmapCpc != nil && dest.BitmapCpc.CpcPlus)
+		ascConv.ConvertAscii(source, dest, 16, &colorTable)
+
+	case 9:
+		// ASC1: Mode 1 encoding, 4x16 blocks, 4 colors
+		ascConv := NewAsciiConverter(prm, dest.BitmapCpc != nil && dest.BitmapCpc.CpcPlus)
+		ascConv.ConvertAscii(source, dest, 4, &colorTable)
+
+	case 10:
+		// ASC2: Mode 2 encoding, 2x16 blocks, 2 colors
+		ascConv := NewAsciiConverter(prm, dest.BitmapCpc != nil && dest.BitmapCpc.CpcPlus)
+		ascConv.ConvertAscii(source, dest, 2, &colorTable)
+
+	case 3, 4:
+		// EGX modes: use EGXConverter with yEgx parameter
+		egx := NewEGXConverter()
+		egx.Convert(source, prm, dest, maxPen, colorTable, yEgx)
 
 	default:
-		// Standard modes 0, 1, 2 and EGX modes 3, 4
+		// Standard modes 0, 1, 2
 		ConvertStd(source, prm, dest, maxPen, colorTable)
 	}
 }

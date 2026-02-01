@@ -1,4 +1,4 @@
-// Package convert provides Pass1 conversion functionality for ConvImgCpc.
+// Package convert provides Pass1 conversion functionality for go-cpc-image.
 // This file contains color reduction, HSL adjustment, contrast, and bit-depth reduction.
 package convert
 
@@ -121,9 +121,10 @@ func GetNumColorPixelCpc(prm *Param, p bitmap.RgbColor) int {
 		oldDist := 0x7FFFFFFF
 		for i := 0; i < 27; i++ {
 			s := cpc.CpcRgbPalette[i]
-			dist := int(s.R-p.R)*int(s.R-p.R)*prm.CoefR +
-				int(s.V-p.V)*int(s.V-p.V)*prm.CoefV +
-				int(s.B-p.B)*int(s.B-p.B)*prm.CoefB
+			dr := int(s.R) - int(p.R)
+			dv := int(s.V) - int(p.V)
+			db := int(s.B) - int(p.B)
+			dist := dr*dr*prm.CoefR + dv*dv*prm.CoefV + db*db*prm.CoefB
 
 			if dist < oldDist {
 				oldDist = dist
@@ -286,7 +287,7 @@ func ConvertPass1(source *bitmap.DirectBitmap, prm *Param) {
 
 	// Process pixels
 	for yPix := 0; yPix < height; yPix += stepY {
-		Tx := cpc.PixelWidth(prm.VirtualMode, yPix, 0) // YEgx=0 for standard processing
+		Tx := cpc.PixelWidth(prm.VirtualMode, yPix, prm.YEgx)
 
 		for xPix := 0; xPix < width; xPix += Tx {
 			for yy := 0; yy < stepY; yy += 2 {
@@ -296,7 +297,7 @@ func ConvertPass1(source *bitmap.DirectBitmap, prm *Param) {
 				if prm.CpcPlus {
 					// CPC+ mode: 4096 colors
 					chosen = bitmap.NewRgbColor((p.R>>4)*17, (p.V>>4)*17, (p.B>>4)*17)
-					colorIndex = int(chosen.V<<4)&0xF00 + int(chosen.B)&0xF0 + int(chosen.R>>4)
+					colorIndex = (int(chosen.V>>4) << 8) | (int(chosen.B>>4) << 4) | int(chosen.R>>4)
 				} else {
 					// Standard CPC: 27 colors
 					colorIndex = GetNumColorPixelCpc(prm, p)

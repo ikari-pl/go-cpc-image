@@ -7,17 +7,19 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/ikari/go-cpc-image/pkg/cpc"
 )
 
 const (
-	MaxDSK       = 2       // Number of DSK files managed
-	MaxTracks    = 99      // Maximum number of tracks per DSK
-	SectSize     = 512     // Standard sector size
-	UserDeleted  = 0xE5    // Byte for deleted file
-	SeekBack     = 0x1000  // For compression algorithms
-	MaxString    = 256     // Maximum string length for compression
-	MaxSects     = 29      // Maximum sectors per track
-	TrackDataSize = 0x1800 // Track data size
+	MaxDSK        = 2       // Number of DSK files managed
+	MaxTracks     = 99      // Maximum number of tracks per DSK
+	SectSize      = 512     // Standard sector size
+	UserDeleted   = 0xE5    // Byte for deleted file
+	SeekBack      = 0x1000  // For compression algorithms
+	MaxString     = 256     // Maximum string length for compression
+	MaxSects      = 29      // Maximum sectors per track
+	TrackDataSize = 0x1800  // Track data size
 )
 
 // DskError represents errors that can occur during DSK operations
@@ -47,7 +49,7 @@ func (e DskError) Error() string {
 
 // CPCEMUEnt represents the DSK file header
 type CPCEMUEnt struct {
-	ID             [48]byte // "EXTENDED CPC DSK File\r\nDisk-Info\r\nConvImgCpc    "
+	ID             [48]byte // "EXTENDED CPC DSK File\r\nDisk-Info\r\ngo-cpc-image  "
 	NbTracks       byte
 	NbHeads        byte
 	TrackSize      uint16
@@ -67,15 +69,15 @@ type CPCEMUSect struct {
 
 // CPCEMUTrack represents a track
 type CPCEMUTrack struct {
-	ID      [16]byte                // "Track-Info\r\n    "
-	Track   byte
-	Head    byte
-	Unused  uint16
+	ID       [16]byte // "Track-Info\r\n    "
+	Track    byte
+	Head     byte
+	Unused   uint16
 	SectSize byte
-	NbSect  byte
-	Gap3    byte
-	OctRemp byte
-	Sect    [MaxSects]CPCEMUSect
+	NbSect   byte
+	Gap3     byte
+	OctRemp  byte
+	Sect     [MaxSects]CPCEMUSect
 }
 
 // StDirEntry represents a directory entry
@@ -87,6 +89,14 @@ type StDirEntry struct {
 	Unused  uint16
 	NbPages byte
 	Blocks  [16]byte
+}
+
+// DskFileEntry represents a file found on a DSK image.
+type DskFileEntry struct {
+	Name     string // Filename in 8.3 format (trimmed)
+	Size     int    // Total file size in bytes
+	LoadAddr uint16 // Load address from AMSDOS header (0 if no header)
+	ExecAddr uint16 // Execution address from AMSDOS header (0 if no header)
 }
 
 // GestDSK manages DSK disk images
@@ -106,10 +116,10 @@ func NewGestDSK() *GestDSK {
 	return g
 }
 
-// FormatDsk formats the DSK with default values
+// FormatDsk formats the DSK with default values (40 tracks)
 func (g *GestDSK) FormatDsk() {
 	// Set the ID string
-	id := "EXTENDED CPC DSK File\r\nDisk-Info\r\nConvImgCpc    "
+	id := "EXTENDED CPC DSK File\r\nDisk-Info\r\ngo-cpc-image  "
 	copy(g.Infos.ID[:], []byte(id))
 
 	g.Infos.NbTracks = 40
@@ -129,6 +139,25 @@ func (g *GestDSK) FormatDsk() {
 		g.formatTrack(t, 0, 0xC1, 9) // Default format = data (face 0)
 		g.formatTrack(t, 1, 0xC1, 9) // Default format = data (face 1)
 
+		g.Infos.TrackSizeTable[t] = 0x13
+	}
+}
+
+// FormatDsk80 formats the DSK with 80 tracks for larger capacity.
+func (g *GestDSK) FormatDsk80() {
+	id := "EXTENDED CPC DSK File\r\nDisk-Info\r\ngo-cpc-image  "
+	copy(g.Infos.ID[:], []byte(id))
+
+	g.Infos.NbTracks = 80
+	g.Infos.NbHeads = 1
+
+	for t := 0; t < MaxTracks; t++ {
+		g.Tracks[t][0] = &CPCEMUTrack{}
+		g.Tracks[t][1] = &CPCEMUTrack{}
+		g.Data[t][0] = make([]byte, TrackDataSize)
+		g.Data[t][1] = make([]byte, TrackDataSize)
+		g.formatTrack(t, 0, 0xC1, 9)
+		g.formatTrack(t, 1, 0xC1, 9)
 		g.Infos.TrackSizeTable[t] = 0x13
 	}
 }
@@ -202,7 +231,7 @@ func (g *GestDSK) getInfoDirEntry(numDir int) StDirEntry {
 	pos := g.getPosData(t, s) + ((numDir & 15) << 5)
 
 	// Read directory entry from data
-	data := g.Data[t][0][pos:pos+32] // Directory entry is 32 bytes
+	data := g.Data[t][0][pos : pos+32] // Directory entry is 32 bytes
 
 	dir.User = data[0]
 	copy(dir.Nom[:], data[1:9])
@@ -395,6 +424,59 @@ func (g *GestDSK) writeBloc(bloc int, bufBloc []byte, offset int) {
 	}
 }
 
+// readBloc reads an AMSDOS block (1 block = 2 sectors = 1024 bytes) from the DSK.
+func (g *GestDSK) readBloc(bloc int) []byte {
+	buf := make([]byte, 1024)
+	track := (bloc << 1) / 9
+	sect := (bloc << 1) % 9
+	minSect := g.getMinSect(true)
+
+	switch minSect {
+	case 0x41:
+		track += 2
+	case 0x01:
+		track++
+	}
+
+	if track >= int(g.Infos.NbTracks) {
+		return buf
+	}
+
+	pos := g.getPosData(track, sect+minSect)
+	if pos+SectSize <= len(g.Data[track][0]) {
+		copy(buf[0:SectSize], g.Data[track][0][pos:pos+SectSize])
+	}
+
+	sect++
+	if sect > 8 {
+		track++
+		sect = 0
+	}
+	if track < int(g.Infos.NbTracks) {
+		pos = g.getPosData(track, sect+minSect)
+		if pos+SectSize <= len(g.Data[track][0]) {
+			copy(buf[SectSize:1024], g.Data[track][0][pos:pos+SectSize])
+		}
+	}
+
+	return buf
+}
+
+// MaxBloc returns the maximum block number for the current DSK format.
+func (g *GestDSK) MaxBloc() int {
+	nbTracks := int(g.Infos.NbTracks)
+	minSect := g.getMinSect(true)
+	dirTracks := 0
+	switch minSect {
+	case 0x41:
+		dirTracks = 2
+	case 0x01:
+		dirTracks = 1
+	}
+	usableTracks := nbTracks - dirTracks
+	return (usableTracks * 9) / 2
+}
+
 // setInfoDirEntry sets an entry in the directory
 func (g *GestDSK) setInfoDirEntry(numDir int, dir StDirEntry) {
 	minSect := g.getMinSect(true)
@@ -413,7 +495,7 @@ func (g *GestDSK) setInfoDirEntry(numDir int, dir StDirEntry) {
 	pos := g.getPosData(t, s) + ((numDir & 15) << 5)
 
 	// Write directory entry to data
-	data := g.Data[t][0][pos:pos+32]
+	data := g.Data[t][0][pos : pos+32]
 	data[0] = dir.User
 	copy(data[1:9], dir.Nom[:])
 	copy(data[9:12], dir.Ext[:])
@@ -594,6 +676,172 @@ func (g *GestDSK) Load(fileName string) error {
 	}
 
 	return nil
+}
+
+// ListFiles returns a list of all files on the DSK image at dskPath.
+func ListFiles(dskPath string) ([]DskFileEntry, error) {
+	g := NewGestDSK()
+	if err := g.Load(dskPath); err != nil {
+		return nil, fmt.Errorf("failed to load DSK: %w", err)
+	}
+
+	type fileInfo struct {
+		name      string
+		totalSize int
+		blocks    []byte
+		firstPage bool
+	}
+	files := make(map[string]*fileInfo)
+	var order []string
+
+	for i := 0; i < 64; i++ {
+		dir := g.getInfoDirEntry(i)
+		if dir.User == UserDeleted {
+			continue
+		}
+
+		nom := strings.TrimRight(string(dir.Nom[:]), " ")
+		extBytes := make([]byte, 3)
+		for j := 0; j < 3; j++ {
+			extBytes[j] = dir.Ext[j] & 0x7F
+		}
+		ext := strings.TrimRight(string(extBytes), " ")
+
+		fullName := nom
+		if ext != "" {
+			fullName = nom + "." + ext
+		}
+
+		fi, exists := files[fullName]
+		if !exists {
+			fi = &fileInfo{name: fullName}
+			files[fullName] = fi
+			order = append(order, fullName)
+		}
+
+		fi.totalSize += int(dir.NbPages) * 128
+
+		if dir.NumPage == 0 {
+			fi.blocks = make([]byte, 16)
+			copy(fi.blocks, dir.Blocks[:])
+			fi.firstPage = true
+		}
+	}
+
+	var entries []DskFileEntry
+	for _, name := range order {
+		fi := files[name]
+		entry := DskFileEntry{
+			Name: fi.name,
+			Size: fi.totalSize,
+		}
+
+		if fi.firstPage && len(fi.blocks) > 0 && fi.blocks[0] > 1 {
+			blockData := g.readBloc(int(fi.blocks[0]))
+			if len(blockData) >= 128 && cpc.CheckAmsdos(blockData[:128]) {
+				amsHeader, err := cpc.GetAmsdos(blockData[:128])
+				if err == nil {
+					entry.LoadAddr = amsHeader.Address
+					entry.ExecAddr = amsHeader.EntryAddress
+				}
+			}
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, nil
+}
+
+// RemoveFile removes a file from the DSK image at dskPath.
+func RemoveFile(dskPath string, filename string) error {
+	g := NewGestDSK()
+	if err := g.Load(dskPath); err != nil {
+		return fmt.Errorf("failed to load DSK: %w", err)
+	}
+
+	dirLoc := g.getNomDir(filename)
+	fullName := string(dirLoc.Nom[:]) + string(dirLoc.Ext[:])
+
+	found := false
+	for i := 0; i < 64; i++ {
+		dir := g.getInfoDirEntry(i)
+		if dir.User != UserDeleted && g.compareNomsAmsdos(fullName, string(dir.Nom[:])+string(dir.Ext[:])) == 0 {
+			dir.User = UserDeleted
+			g.setInfoDirEntry(i, dir)
+			found = true
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("file %q not found on DSK", filename)
+	}
+
+	return g.Save(dskPath)
+}
+
+// AddFile adds a file with an AMSDOS header to the DSK image at dskPath.
+// The data should NOT include an AMSDOS header; one will be created automatically.
+func AddFile(dskPath string, filename string, data []byte, loadAddr, execAddr uint16) error {
+	g := NewGestDSK()
+	if err := g.Load(dskPath); err != nil {
+		return fmt.Errorf("failed to load DSK: %w", err)
+	}
+
+	entete := cpc.CreeEntete(filename, loadAddr, uint16(len(data)), execAddr)
+	headerBytes, err := cpc.AmsdosToByte(entete)
+	if err != nil {
+		return fmt.Errorf("failed to create AMSDOS header: %w", err)
+	}
+
+	fullData := make([]byte, 128+len(data))
+	copy(fullData[:128], headerBytes)
+	copy(fullData[128:], data)
+
+	mb := g.MaxBloc()
+	if mb > 255 {
+		mb = 255
+	}
+
+	result := g.CopieFichier(fullData, filename, len(fullData), mb, 0)
+	if result != ErrNoErr {
+		return result
+	}
+
+	return g.Save(dskPath)
+}
+
+// SaveAutoNumbered saves data to the DSK with an auto-numbered filename.
+// It finds the next available number for the pattern prefix + NN + "." + extension
+// (e.g., CNVIMG00.SCR, CNVIMG01.SCR). Returns the filename used.
+func SaveAutoNumbered(dskPath string, data []byte, prefix string, extension string, loadAddr, execAddr uint16) (string, error) {
+	g := NewGestDSK()
+	if err := g.Load(dskPath); err != nil {
+		return "", fmt.Errorf("failed to load DSK: %w", err)
+	}
+
+	var filename string
+	found := false
+	for n := 0; n < 100; n++ {
+		candidate := fmt.Sprintf("%s%02d.%s", prefix, n, extension)
+		dirLoc := g.getNomDir(candidate)
+		fullName := string(dirLoc.Nom[:]) + string(dirLoc.Ext[:])
+		if g.fileExist(fullName, 0) == -1 {
+			filename = candidate
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return "", fmt.Errorf("no available filename for prefix %q (00-99 exhausted)", prefix)
+	}
+
+	if err := AddFile(dskPath, filename, data, loadAddr, execAddr); err != nil {
+		return "", err
+	}
+
+	return filename, nil
 }
 
 // Helper function for min

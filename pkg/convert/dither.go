@@ -1,5 +1,5 @@
-// Package convert provides image conversion functionality for the ConvImgCpc Go rewrite.
-// This file contains the dithering system ported from Dither.cs
+// Package convert provides image conversion functionality for go-cpc-image.
+// This file contains the dithering system: matrix definitions, error diffusion, and ordered dithering.
 package convert
 
 import (
@@ -24,7 +24,7 @@ type DitherParam struct {
 	DiffErr  bool   // Error diffusion flag
 }
 
-// Dithering matrices - all values preserved exactly as in C# source
+// Dithering matrices used for ordered and error-diffusion dithering
 var (
 	// Floyd-Steinberg (2x2)
 	floyd = [][]float64{
@@ -192,21 +192,21 @@ var DitherMatrices = map[string][][]float64{
 	"Bayer 2 (4x4)":         bayer2,
 	"Bayer 3 (4X4)":         bayer3,
 	"Ordered 1 (2x2)":       ord1,
-	"Ordered 2 (3x3)":       ord2,
-	"Ordered 3 (4x4)":       ord3,
+	"Ordered 2 (3x3)":       ord3,
+	"Ordered 3 (4x4)":       ord4,
 	"ZigZag1 (3x3)":         zigzag1,
 	"ZigZag2 (4x3)":         zigzag2,
 	"ZigZag3 (5x4)":         zigzag3,
-	"Test0":                 test0,
-	"Test1":                 test1,
-	"Test2":                 test2,
-	"Test3":                 test3,
-	"Test4":                 test4,
-	"Test5":                 test5,
-	"Test6":                 test6,
-	"Test7":                 test7,
-	"Test8":                 test8,
-	"Test9":                 test9,
+	"Checker Hi (4x4)":        test0,
+	"Checker Lo (4x4)":        test1,
+	"Checker Mid (4x4)":       test2,
+	"Diamond (2x4)":           test3,
+	"Stucki Lite (3x2)":       test4,
+	"Floyd-Steinberg 2 (2x3)": test5,
+	"Dispersed (4x4)":         test6,
+	"Weighted Left (3x3)":     test7,
+	"Ramp (2x4)":              test8,
+	"Gradient (4x4)":          test9,
 }
 
 // Current dithering matrix, set by SetMatDither
@@ -225,6 +225,7 @@ func minMaxByte(value float64) uint8 {
 
 // SetMatDither sets up the dithering matrix based on parameters.
 // Returns the effective percentage value used, or 0 if dithering is disabled.
+// CPC+ uses 3-bit shift (8x) for finer color granularity; standard CPC uses 1-bit shift (2x).
 func SetMatDither(prm DitherParam) int {
 	var pct int
 	if prm.CpcPlus {
@@ -253,6 +254,7 @@ func SetMatDither(prm DitherParam) int {
 		}
 
 		// Normalize matrix values based on percentage
+		// Normalize: scale each cell by (pct / sum) so the matrix sums to pct
 		for y := 0; y < height; y++ {
 			for x := 0; x < width; x++ {
 				matDither[y][x] = (matDither[y][x] * float64(pct)) / sum
@@ -270,51 +272,44 @@ func SetMatDither(prm DitherParam) int {
 // For error diffusion (diffErr=true), spreads quantization error to neighboring source pixels.
 // For ordered dithering (diffErr=false), applies a matrix offset to the current pixel.
 // Returns the (potentially modified) pixel color — important for ordered dithering
-// since Go passes structs by value (unlike C# where RgbColor is a reference type).
+// since Go passes structs by value.
 func DoDitherFull(source Bitmap, xPix, yPix, tx int, p, chosen bitmap.RgbColor, diffErr bool) bitmap.RgbColor {
 	if matDither == nil {
 		return p
 	}
 
 	if diffErr {
-		// Error diffusion dithering
+		// Error diffusion: propagates quantization error (p - chosen) to
+		// neighboring source pixels, weighted by matDither[x,y] / 256.
 		matHeight := len(matDither)
 		matWidth := len(matDither[0])
 
 		for y := 0; y < matHeight; y++ {
 			for x := 0; x < matWidth; x++ {
 				pixelX := xPix + tx*x
-				pixelY := yPix + (y << 1) // Equivalent to y * 2
+				pixelY := yPix + (y << 1) // y * 2
 
 				if pixelX < source.Width() && pixelY < source.Height() {
 					pix := source.GetPixelColor(pixelX, pixelY)
 
-					// Apply error diffusion using the matrix
-					errorR := float64(int(p.R) - int(chosen.R))
-					errorV := float64(int(p.V) - int(chosen.V))
-					errorB := float64(int(p.B) - int(chosen.B))
-
-					newR := float64(pix.R) + errorR*matDither[y][x]/256.0
-					newV := float64(pix.V) + errorV*matDither[y][x]/256.0
-					newB := float64(pix.B) + errorB*matDither[y][x]/256.0
-
-					pix.R = minMaxByte(newR)
-					pix.V = minMaxByte(newV)
-					pix.B = minMaxByte(newB)
+					// Add weighted quantization error to each channel
+					pix.R = minMaxByte(float64(pix.R) + float64(int(p.R)-int(chosen.R))*matDither[y][x]/256.0)
+					pix.V = minMaxByte(float64(pix.V) + float64(int(p.V)-int(chosen.V))*matDither[y][x]/256.0)
+					pix.B = minMaxByte(float64(pix.B) + float64(int(p.B)-int(chosen.B))*matDither[y][x]/256.0)
 
 					source.SetPixel(pixelX, pixelY, pix)
 				}
 			}
 		}
 	} else {
-		// Ordered dithering
+		// Ordered dithering: add a position-dependent offset from the matrix.
 		matHeight := len(matDither)
 		matWidth := len(matDither[0])
 
 		xm := (xPix / tx) % matWidth
-		ym := (yPix >> 1) % matHeight // Equivalent to (yPix / 2) % matHeight
+		ym := (yPix >> 1) % matHeight
 
-		// Apply ordered dithering offset
+		// Apply the matrix value as an additive bias before quantization
 		ditherValue := matDither[ym][xm]
 		p.R = minMaxByte(float64(p.R) + ditherValue)
 		p.V = minMaxByte(float64(p.V) + ditherValue)
@@ -324,12 +319,30 @@ func DoDitherFull(source Bitmap, xPix, yPix, tx int, p, chosen bitmap.RgbColor, 
 }
 
 // GetAvailableMethods returns a list of all available dithering method names
+// in a fixed logical order (not random map iteration order).
 func GetAvailableMethods() []string {
-	methods := make([]string, 0, len(DitherMatrices))
-	for name := range DitherMatrices {
-		methods = append(methods, name)
+	return []string{
+		"Floyd-Steinberg (2x2)",
+		"Bayer 1 (2X2)",
+		"Bayer 2 (4x4)",
+		"Bayer 3 (4X4)",
+		"Ordered 1 (2x2)",
+		"Ordered 2 (3x3)",
+		"Ordered 3 (4x4)",
+		"ZigZag1 (3x3)",
+		"ZigZag2 (4x3)",
+		"ZigZag3 (5x4)",
+		"Checker Lo (4x4)",
+		"Checker Mid (4x4)",
+		"Checker Hi (4x4)",
+		"Diamond (2x4)",
+		"Dispersed (4x4)",
+		"Gradient (4x4)",
+		"Ramp (2x4)",
+		"Stucki Lite (3x2)",
+		"Floyd-Steinberg 2 (2x3)",
+		"Weighted Left (3x3)",
 	}
-	return methods
 }
 
 // GetMatrixSize returns the dimensions (width, height) of a dithering matrix

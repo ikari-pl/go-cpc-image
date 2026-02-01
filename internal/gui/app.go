@@ -1,4 +1,4 @@
-// Package gui provides the Fyne GUI implementation for ConvImgCpc.
+// Package gui provides the Fyne GUI implementation for Go CPC image.
 // This file contains the main application structure and window layout.
 package gui
 
@@ -50,6 +50,25 @@ type Application struct {
 	toolbar   *ToolbarWidget
 	statusBar *widget.Label
 
+	// Drawing editor
+	editor *Editor
+
+	// Crop region (in source image coordinates, 0.0-1.0 normalized)
+	cropEnabled    bool
+	cropX1, cropY1 float64 // top-left normalized 0-1
+	cropX2, cropY2 float64 // bottom-right normalized 0-1
+	cropLockAspect bool
+	cropAspect     float64 // 8.0/5.0 for 320x200
+	cropDragging   bool    // true while user is drawing a crop rectangle
+
+	// Animation state
+	animFrames []*bitmap.DirectBitmap  // loaded GIF frames
+	animDelays []time.Duration         // per-frame delays
+	animIndex  int                     // current frame index
+	animSlider *widget.Slider          // frame navigation slider
+	animLabel  *widget.Label           // frame counter label
+	animPanel  *fyne.Container         // animation controls container
+
 	// Debouncing + cancel-and-restart
 	debounceMu    sync.Mutex // lightweight lock for timer only
 	debounceTimer *time.Timer
@@ -75,6 +94,9 @@ func NewApplication(app fyne.App, window fyne.Window) (*Application, error) {
 		Height:     400,
 		Mode:       1,
 	}
+
+	// Create drawing editor (before UI components so they can reference it)
+	guiApp.editor = NewEditor(guiApp)
 
 	// Create UI components
 	var err error
@@ -103,6 +125,20 @@ func NewApplication(app fyne.App, window fyne.Window) (*Application, error) {
 		return nil, fmt.Errorf("failed to create toolbar widget: %w", err)
 	}
 
+	// Initialize animation panel (hidden by default)
+	guiApp.animLabel = widget.NewLabel("Frame: 0/0")
+	guiApp.animSlider = widget.NewSlider(0, 0)
+	guiApp.animSlider.Step = 1
+	guiApp.animSlider.OnChanged = func(val float64) {
+		guiApp.selectAnimFrame(int(val))
+	}
+	guiApp.animPanel = container.NewVBox(
+		widget.NewLabel("Animation Frames"),
+		guiApp.animSlider,
+		guiApp.animLabel,
+	)
+	guiApp.animPanel.Hide()
+
 	// Start debounced conversion goroutine
 	go guiApp.conversionWorker()
 
@@ -119,12 +155,14 @@ func (app *Application) BuildLayout() fyne.CanvasObject {
 	)
 	imageContainer.SetOffset(0.5) // 50/50 split
 
-	// Right panel: palette + controls
-	rightPanel := container.NewVBox(
+	// Right panel: palette + controls + animation (scrollable)
+	rightPanel := container.NewVScroll(container.NewVBox(
 		app.palette.GetWidget(),
 		widget.NewSeparator(),
 		app.controls.GetWidget(),
-	)
+		widget.NewSeparator(),
+		app.animPanel,
+	))
 
 	// Main content: images (left) | right panel
 	mainContent := container.NewHSplit(
@@ -158,26 +196,48 @@ func (app *Application) TriggerConversion() {
 		app.debounceTimer.Stop()
 	}
 
-	app.debounceTimer = time.AfterFunc(50*time.Millisecond, func() {
-		app.debounceMu.Lock()
+	app.debounceTimer = time.AfterFunc(30*time.Millisecond, func() {
 		ctx, cancel := context.WithCancel(context.Background())
+
+		app.debounceMu.Lock()
 		app.cancelConv = cancel
 		app.debounceMu.Unlock()
 
-		// Drain any stale request and send the new one
+		// Non-blocking send: if channel is full the worker will drain it
 		select {
-		case <-app.conversionCh:
+		case app.conversionCh <- convRequest{ctx: ctx}:
 		default:
+			// Channel full — worker will pick up the existing request;
+			// drain and replace with our newer context
+			select {
+			case <-app.conversionCh:
+			default:
+			}
+			app.conversionCh <- convRequest{ctx: ctx}
 		}
-		app.conversionCh <- convRequest{ctx: ctx}
 	})
 }
 
 // conversionWorker runs the debounced conversion pipeline in a background goroutine.
 // It owns all mutable conversion state (cpcImage, params during conversion).
+// Before starting a conversion, it drains any newer request that arrived while
+// the previous conversion was running, so we always process the latest state.
 func (app *Application) conversionWorker() {
 	for req := range app.conversionCh {
-		app.performConversion(req.ctx)
+		// Drain: if a newer request arrived while we were busy, skip to it
+		drained := req
+		for {
+			select {
+			case newer := <-app.conversionCh:
+				drained = newer
+			default:
+				goto run
+			}
+		}
+	run:
+		if drained.ctx.Err() == nil {
+			app.performConversion(drained.ctx)
+		}
 	}
 }
 
@@ -190,12 +250,16 @@ func (app *Application) performConversion(ctx context.Context) {
 
 	if srcImg == nil {
 		app.cpcDisplay.Store(CreateDemoCpcImage(320, 200))
-		app.statusBar.SetText("Demo mode - load an image to convert")
-		app.preview.RefreshCpc()
+		fyne.Do(func() {
+			app.statusBar.SetText("Demo mode - load an image to convert")
+			app.preview.RefreshCpc()
+		})
 		return
 	}
 
-	app.statusBar.SetText("Converting...")
+	fyne.Do(func() {
+		app.statusBar.SetText("Converting...")
+	})
 	startTime := time.Now()
 
 	var numColors int
@@ -205,6 +269,17 @@ func (app *Application) performConversion(ctx context.Context) {
 		defer func() {
 			convErr = recover()
 		}()
+
+		// Recreate BitmapCpc if dimensions or CPC+ mode changed
+		bmp := app.cpcImage.BitmapCpc
+		if bmp == nil || bmp.NumCol != app.params.NumCols || bmp.NumLig != app.params.NumLines || bmp.CpcPlus != app.params.CpcPlus {
+			cpcW := app.params.GetScreenWidth()
+			cpcH := app.params.GetScreenHeight()
+			app.cpcImage.BitmapCpc = render.NewBitmapCpcWithParams(app.params.NumCols, app.params.NumLines, app.params.CpcPlus)
+			app.cpcImage.DisplayBmp = bitmap.NewDirectBitmap(cpcW, cpcH)
+			app.cpcImage.Width = cpcW
+			app.cpcImage.Height = cpcH
+		}
 
 		resizedImg := app.getResizeBitmap()
 
@@ -234,23 +309,40 @@ func (app *Application) performConversion(ctx context.Context) {
 			app.params.GetScreenWidth(),
 			app.params.GetScreenHeight(),
 		))
-		app.statusBar.SetText(fmt.Sprintf("Demo mode - conversion error: %v", convErr))
+		fyne.Do(func() {
+			app.statusBar.SetText(fmt.Sprintf("Demo mode - conversion error: %v", convErr))
+		})
 	} else {
 		// Count how many pens are actually used in the output
 		usedPens := app.countUsedPens()
 		elapsed := time.Since(startTime)
-		app.statusBar.SetText(fmt.Sprintf("Mode %d, %dx%d, %d colors found, %d pens used, %.1fms",
+		// Display actual CPC resolution (pixels per byte depends on mode)
+		ppb := 2 // Mode 0: 2 pixels/byte
+		switch app.params.VirtualMode {
+		case 1:
+			ppb = 4
+		case 2:
+			ppb = 8
+		}
+		cpcW := app.params.NumCols * ppb
+		cpcH := app.params.NumLines
+		statusText := fmt.Sprintf("Mode %d, %dx%d, %d colors found, %d pens used, %.1fms",
 			app.params.VirtualMode,
-			app.params.GetScreenWidth(),
-			app.params.GetScreenHeight(),
+			cpcW,
+			cpcH,
 			numColors,
 			usedPens,
 			float64(elapsed.Nanoseconds())/1e6,
-		))
+		)
+		fyne.Do(func() {
+			app.statusBar.SetText(statusText)
+		})
 	}
 
-	app.palette.Refresh()
-	app.preview.RefreshCpc()
+	fyne.Do(func() {
+		app.palette.Refresh()
+		app.preview.RefreshCpc()
+	})
 }
 
 // countUsedPens counts how many distinct pen indices appear in the CPC screen buffer.
@@ -357,14 +449,17 @@ func (app *Application) getResizeBitmap() *bitmap.DirectBitmap {
 		}
 	}
 
+	// Use cropped source if crop is enabled
+	srcBitmap := app.GetCroppedSource()
+
 	// Calculate scaling based on size mode
-	srcWidth := app.sourceImg.Width()
-	srcHeight := app.sourceImg.Height()
+	srcWidth := srcBitmap.Width()
+	srcHeight := srcBitmap.Height()
 
 	switch app.params.SMode {
 	case convert.Fit:
 		// Stretch to fill entire CPC screen
-		app.scaleImage(resized, 0, 0, cpcWidth, cpcHeight)
+		app.scaleImage(srcBitmap, resized, 0, 0, cpcWidth, cpcHeight)
 
 	case convert.KeepSmaller:
 		// Keep aspect ratio, fit within bounds (letterbox/pillarbox)
@@ -373,12 +468,12 @@ func (app *Application) getResizeBitmap() *bitmap.DirectBitmap {
 			// Source is narrower - add pillarbox
 			newW := int(float64(cpcWidth) * ratio)
 			offsetX := (cpcWidth - newW) / 2
-			app.scaleImage(resized, offsetX, 0, newW, cpcHeight)
+			app.scaleImage(srcBitmap, resized, offsetX, 0, newW, cpcHeight)
 		} else {
 			// Source is taller - add letterbox
 			newH := int(float64(cpcHeight) / ratio)
 			offsetY := (cpcHeight - newH) / 2
-			app.scaleImage(resized, 0, offsetY, cpcWidth, newH)
+			app.scaleImage(srcBitmap, resized, 0, offsetY, cpcWidth, newH)
 		}
 
 	case convert.KeepLarger:
@@ -388,30 +483,30 @@ func (app *Application) getResizeBitmap() *bitmap.DirectBitmap {
 			// Source is narrower - crop top/bottom
 			newH := int(float64(cpcHeight) / ratio)
 			offsetY := (cpcHeight - newH) / 2
-			app.scaleImage(resized, 0, offsetY, cpcWidth, newH)
+			app.scaleImage(srcBitmap, resized, 0, offsetY, cpcWidth, newH)
 		} else {
 			// Source is wider - crop left/right
 			newW := int(float64(cpcWidth) * ratio)
 			offsetX := (cpcWidth - newW) / 2
-			app.scaleImage(resized, offsetX, 0, newW, cpcHeight)
+			app.scaleImage(srcBitmap, resized, offsetX, 0, newW, cpcHeight)
 		}
 
 	case convert.UserSize:
 		// User-specified size and position
-		app.scaleImage(resized, app.params.PosX, app.params.PosY, app.params.SizeX, app.params.SizeY)
+		app.scaleImage(srcBitmap, resized, app.params.PosX, app.params.PosY, app.params.SizeX, app.params.SizeY)
 
 	default:
 		// Default to Fit mode
-		app.scaleImage(resized, 0, 0, cpcWidth, cpcHeight)
+		app.scaleImage(srcBitmap, resized, 0, 0, cpcWidth, cpcHeight)
 	}
 
 	return resized
 }
 
 // scaleImage scales the source image into the destination bitmap using nearest-neighbor interpolation.
-func (app *Application) scaleImage(dest *bitmap.DirectBitmap, dstX, dstY, dstW, dstH int) {
-	srcWidth := app.sourceImg.Width()
-	srcHeight := app.sourceImg.Height()
+func (app *Application) scaleImage(src *bitmap.DirectBitmap, dest *bitmap.DirectBitmap, dstX, dstY, dstW, dstH int) {
+	srcWidth := src.Width()
+	srcHeight := src.Height()
 
 	// Nearest-neighbor scaling
 	for dy := 0; dy < dstH; dy++ {
@@ -436,7 +531,7 @@ func (app *Application) scaleImage(dest *bitmap.DirectBitmap, dstX, dstY, dstW, 
 				srcX = srcWidth - 1
 			}
 
-			color := app.sourceImg.GetPixelColor(srcX, srcY)
+			color := src.GetPixelColor(srcX, srcY)
 			dest.SetPixelColor(destX, destY, color)
 		}
 	}
@@ -482,6 +577,67 @@ func (app *Application) SetSourceImage(img *bitmap.DirectBitmap) {
 	}
 }
 
+// GetCroppedSource returns the cropped region of the source image if crop is enabled,
+// otherwise returns the full source image.
+func (app *Application) GetCroppedSource() *bitmap.DirectBitmap {
+	if !app.cropEnabled || app.sourceImg == nil {
+		return app.sourceImg
+	}
+
+	// Normalize coordinates so x1<x2, y1<y2
+	x1, x2 := app.cropX1, app.cropX2
+	y1, y2 := app.cropY1, app.cropY2
+	if x1 > x2 {
+		x1, x2 = x2, x1
+	}
+	if y1 > y2 {
+		y1, y2 = y2, y1
+	}
+
+	// Skip if crop region is essentially the full image or too small
+	if (x2-x1) < 0.01 || (y2-y1) < 0.01 {
+		return app.sourceImg
+	}
+
+	srcW := app.sourceImg.Width()
+	srcH := app.sourceImg.Height()
+
+	// Convert normalized coords to pixel coords
+	px1 := int(x1 * float64(srcW))
+	py1 := int(y1 * float64(srcH))
+	px2 := int(x2 * float64(srcW))
+	py2 := int(y2 * float64(srcH))
+
+	// Clamp
+	if px1 < 0 {
+		px1 = 0
+	}
+	if py1 < 0 {
+		py1 = 0
+	}
+	if px2 > srcW {
+		px2 = srcW
+	}
+	if py2 > srcH {
+		py2 = srcH
+	}
+
+	cropW := px2 - px1
+	cropH := py2 - py1
+	if cropW <= 0 || cropH <= 0 {
+		return app.sourceImg
+	}
+
+	cropped := bitmap.NewDirectBitmap(cropW, cropH)
+	for y := 0; y < cropH; y++ {
+		for x := 0; x < cropW; x++ {
+			c := app.sourceImg.GetPixelColor(px1+x, py1+y)
+			cropped.SetPixelColor(x, y, c)
+		}
+	}
+	return cropped
+}
+
 // GetCpcDisplay returns the current CPC display image for preview.
 // Lock-free — safe to call from Fyne's render thread.
 func (app *Application) GetCpcDisplay() *image.RGBA {
@@ -494,7 +650,43 @@ func (app *Application) UpdatePalette() {
 	app.TriggerConversion()
 }
 
+// RefreshControls syncs all UI controls to match the current params.
+func (app *Application) RefreshControls() {
+	app.controls.RefreshFromParams()
+}
+
 // SetStatus updates the status bar text.
 func (app *Application) SetStatus(status string) {
 	app.statusBar.SetText(status)
+}
+
+// SetAnimationFrames stores loaded GIF frames and shows the animation panel.
+func (app *Application) SetAnimationFrames(frames []*bitmap.DirectBitmap, delays []time.Duration) {
+	app.animFrames = frames
+	app.animDelays = delays
+	app.animIndex = 0
+
+	if len(frames) > 1 {
+		app.animSlider.Max = float64(len(frames) - 1)
+		app.animSlider.SetValue(0)
+		app.animLabel.SetText(fmt.Sprintf("Frame: 1/%d", len(frames)))
+		app.animPanel.Show()
+	} else {
+		app.animPanel.Hide()
+	}
+
+	// Show the first frame as the source image.
+	if len(frames) > 0 {
+		app.SetSourceImage(frames[0])
+	}
+}
+
+// selectAnimFrame switches to the animation frame at the given index.
+func (app *Application) selectAnimFrame(index int) {
+	if index < 0 || index >= len(app.animFrames) {
+		return
+	}
+	app.animIndex = index
+	app.animLabel.SetText(fmt.Sprintf("Frame: %d/%d", index+1, len(app.animFrames)))
+	app.SetSourceImage(app.animFrames[index])
 }
