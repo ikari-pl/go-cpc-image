@@ -2,7 +2,7 @@
 
 Convert images to Amstrad CPC screen formats — standard modes, CPC+ 4096 colours, overscan, EGX, split-raster effects, animations, and more. Includes both a CLI and a Fyne-based GUI with live preview.
 
-<img width="100%" alt="Go CPC Image! in action" src="https://github.com/user-attachments/assets/6144148c-9aaa-40fd-95d9-2bfa75af28c3" />
+<img width="100%" alt="Go CPC Image! in action" src=".github/screenshot.jpg" />
 
 ## Features
 
@@ -105,4 +105,4 @@ MIT
 
 ### Thanks
 
-:beer: Inspired by [ConvImgCpc](https://music.retroacpc.net/convimgcpc/) by Music — the original C# Amstrad CPC image converter that started it all.
+:beer: Inspired by [ConvImgCpc](https://github.com/DemoniakLudo/ConvImgCpc) by Demoniak — the original C# Amstrad CPC image converter that started it all.
