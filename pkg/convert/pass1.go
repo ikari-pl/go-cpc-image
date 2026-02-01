@@ -5,8 +5,8 @@ package convert
 import (
 	"math"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 )
 
 // min returns the minimum of two integers

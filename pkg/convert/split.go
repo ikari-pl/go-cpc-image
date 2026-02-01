@@ -3,7 +3,7 @@
 package convert
 
 import (
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 )
 
 // SplitConverter handles Split-raster mode conversion.

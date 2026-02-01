@@ -5,7 +5,7 @@ import (
 	"image"
 	"image/color"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 )
 
 // CreateDemoImage creates a simple test image for GUI demonstration.

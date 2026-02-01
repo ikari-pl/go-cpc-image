@@ -19,6 +19,7 @@ const (
 	MethodZX0V2
 	MethodZX1
 	MethodZX0Ovs
+	MethodOCP
 )
 
 // LZW represents the LZW compression/decompression engine

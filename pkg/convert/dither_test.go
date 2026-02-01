@@ -4,7 +4,7 @@ package convert
 import (
 	"testing"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 )
 
 // TestDitheringMatrixSizes tests that all dithering matrices have correct dimensions

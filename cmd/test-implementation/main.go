@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ikari/go-cpc-image/pkg/compress"
-	"github.com/ikari/go-cpc-image/pkg/fileio"
+	"github.com/ikari-pl/go-cpc-image/pkg/compress"
+	"github.com/ikari-pl/go-cpc-image/pkg/fileio"
 )
 
 func main() {

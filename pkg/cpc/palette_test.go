@@ -4,7 +4,7 @@ package cpc
 import (
 	"testing"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 )
 
 // TestCpcRgbPalette validates the 27-color CPC palette values

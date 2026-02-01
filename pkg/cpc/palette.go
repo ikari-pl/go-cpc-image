@@ -1,7 +1,7 @@
 // Package cpc provides CPC hardware constants and functions.
 package cpc
 
-import "github.com/ikari/go-cpc-image/pkg/bitmap"
+import "github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 
 // CPC luminance levels - 3 levels per RGB channel for 27 total colors
 const (
@@ -49,11 +49,10 @@ const CpcVGA = "TDU\\X]LEMVFW^@_NGORBSZY[JCK"
 // For CPC+ mode, it converts 12-bit GRB to RGB. For standard CPC, uses CpcRgbPalette table.
 func PaletteColor(c int, cpcPlus bool) int {
 	if cpcPlus {
-		// CPC+ 12-bit color: GRB nibbles -> RGB
-		// Format: 0x0GRB where G=green, R=red, B=blue (each 4 bits)
+		// CPC+ 12-bit color: 0x0VBR where V=green(vert), B=blue, R=red (each 4 bits)
+		r := (c & 0x0F) * 17         // Red: bits 3-0
 		g := ((c & 0xF00) >> 8) * 17 // Green: bits 11-8
-		r := ((c & 0xF0) >> 4) * 17  // Red: bits 7-4
-		b := (c & 0x0F) * 17         // Blue: bits 3-0
+		b := ((c & 0xF0) >> 4) * 17  // Blue: bits 7-4
 		return b + (g << 8) + (r << 16)
 	}
 
@@ -71,10 +70,10 @@ func GetColor(c int, cpcPlus bool) bitmap.RgbColor {
 	}
 
 	if cpcPlus {
-		// CPC+ 12-bit GRB format
-		r := uint8(((c & 0xF0) >> 4) * 17)  // Red: bits 7-4
-		g := uint8(((c & 0xF00) >> 8) * 17) // Green: bits 11-8
-		b := uint8((c & 0x0F) * 17)         // Blue: bits 3-0
+		// CPC+ 12-bit format: 0x0VBR where V=green, B=blue, R=red
+		r := uint8((c & 0x0F) * 17)          // Red: bits 3-0
+		g := uint8(((c & 0xF00) >> 8) * 17)  // Green: bits 11-8
+		b := uint8(((c & 0xF0) >> 4) * 17)   // Blue: bits 7-4
 		return bitmap.NewRgbColor(r, g, b)
 	}
 
@@ -96,10 +95,10 @@ func GetPenColor(bmp *bitmap.DirectBitmap, x, y int, palette [16]int, cpcPlus bo
 			if palette[pen] == 0xFFFF {
 				continue
 			}
-			// Extract GRB nibbles from palette entry
+			// Extract VBR nibbles from palette entry (0x0VBR)
 			palG := (palette[pen] >> 8) & 0x0F
-			palR := (palette[pen] >> 4) & 0x0F
-			palB := palette[pen] & 0x0F
+			palB := (palette[pen] >> 4) & 0x0F
+			palR := palette[pen] & 0x0F
 
 			// Compare with pixel color (4-bit precision)
 			if (col.V>>4) == uint8(palG) && (col.R>>4) == uint8(palR) && (col.B>>4) == uint8(palB) {
@@ -145,9 +144,9 @@ func GetCpcRgb() []bitmap.RgbColor {
 
 // GetColorFromCpcPlus converts a CPC+ 12-bit color value to RgbColor.
 func GetColorFromCpcPlus(colorValue int) bitmap.RgbColor {
-	// CPC+ 12-bit GRB format: 0x0GRB
-	r := uint8(((colorValue & 0xF0) >> 4) * 17)   // Red: bits 7-4
-	g := uint8(((colorValue & 0xF00) >> 8) * 17)  // Green: bits 11-8
-	b := uint8((colorValue & 0x0F) * 17)          // Blue: bits 3-0
+	// CPC+ 12-bit format: 0x0VBR where V=green, B=blue, R=red
+	r := uint8((colorValue & 0x0F) * 17)            // Red: bits 3-0
+	g := uint8(((colorValue & 0xF00) >> 8) * 17)    // Green: bits 11-8
+	b := uint8(((colorValue & 0xF0) >> 4) * 17)     // Blue: bits 7-4
 	return bitmap.NewRgbColor(r, g, b)
 }

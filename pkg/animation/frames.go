@@ -9,7 +9,7 @@ import (
 	_ "image/png"
 	"io"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 )
 
 // ImageSource manages multiple frames for animation sequences.

@@ -5,8 +5,8 @@ package convert
 import (
 	"math"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 )
 
 // PatternM1 represents a 4x4 trame pattern for Mode 1 ASCII art.
@@ -261,21 +261,7 @@ func (conv *AsciiConverter) ConvertPattern(source *bitmap.DirectBitmap, dest *Im
 }
 
 // GetDefaultPatternM1 returns the default 16 trame patterns for Mode 1.
-// This would normally be loaded from the global Cpc.trameM1 array.
+// Returns preset 0 from TramesAscUt. Index order is [pattern][x][y].
 func GetDefaultPatternM1() [16][4][4]byte {
-	// This is a placeholder - in the real implementation, this would be
-	// loaded from the global trame patterns or a configuration file
-	var trames [16][4][4]byte
-
-	// Initialize with some basic patterns
-	for i := 0; i < 16; i++ {
-		for y := 0; y < 4; y++ {
-			for x := 0; x < 4; x++ {
-				// Simple pattern: alternating based on position and trame index
-				trames[i][x][y] = byte((i + x + y) % 4)
-			}
-		}
-	}
-
-	return trames
+	return CopyTrame(0)
 }

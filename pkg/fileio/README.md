@@ -113,8 +113,8 @@ All functions return descriptive errors for debugging and user feedback.
 
 ## Dependencies
 
-- `github.com/ikari/go-cpc-image/pkg/cpc` - AMSDOS header handling
-- `github.com/ikari/go-cpc-image/pkg/compress` - Compression algorithms
+- `github.com/ikari-pl/go-cpc-image/pkg/cpc` - AMSDOS header handling
+- `github.com/ikari-pl/go-cpc-image/pkg/compress` - Compression algorithms
 
 ## Compatibility
 

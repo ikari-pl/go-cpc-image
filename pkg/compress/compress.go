@@ -5,11 +5,22 @@ import (
 	"errors"
 )
 
+// Sentinel errors used across compression formats
+var (
+	ErrInputTooShort    = errors.New("input data too short")
+	ErrInvalidSignature = errors.New("invalid format signature")
+	ErrUnknownVariant   = errors.New("unknown format variant")
+	ErrInvalidInputSize = errors.New("invalid input size")
+	ErrOutputTooSmall   = errors.New("output buffer too small")
+)
+
 // Compressor provides a unified interface for different compression algorithms
 type Compressor struct {
 	lzw *LZW
 	zx0 *ZX0
 	zx1 *ZX1
+	ocp *OCP
+	pks *PKS
 }
 
 // NewCompressor creates a new unified compressor
@@ -18,7 +29,19 @@ func NewCompressor() *Compressor {
 		lzw: NewLZW(),
 		zx0: NewZX0(),
 		zx1: NewZX1(),
+		ocp: NewOCP(),
+		pks: NewPKS(),
 	}
+}
+
+// OCP returns the OCP compressor for direct access
+func (c *Compressor) OCP() *OCP {
+	return c.ocp
+}
+
+// PKS returns the PKS compressor for direct access
+func (c *Compressor) PKS() *PKS {
+	return c.pks
 }
 
 // Pack compresses data using the specified method
@@ -66,6 +89,9 @@ func (c *Compressor) Pack(bufIn []byte, lengthIn int, bufOut []byte, lengthOut i
 
 		return c.zx0.PackZX0(bufTmp, posOut, bufOut, false)
 
+	case MethodOCP:
+		return c.ocp.PackOCP(bufIn, lengthIn, bufOut, 0x4000)
+
 	default:
 		return 0, errors.New("unsupported compression method")
 	}
@@ -76,6 +102,9 @@ func (c *Compressor) Depack(bufIn []byte, startIn int, bufOut []byte, pkMethod P
 	switch pkMethod {
 	case Standard:
 		return c.lzw.DepackStd(bufIn, startIn, bufOut)
+
+	case MethodOCP:
+		return c.ocp.DepackOCP(bufIn[startIn:], bufOut)
 
 	default:
 		return 0, errors.New("unsupported decompression method")

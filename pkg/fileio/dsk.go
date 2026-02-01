@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ikari/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 )
 
 const (

@@ -1,5 +1,6 @@
 // Package gui provides the palette widget for CPC color editing.
-// This file implements the 16-pen palette editor with CPC color selection.
+// This file implements the 16-pen palette editor with CPC color selection,
+// lock/disable state cycling, and visual indicators.
 package gui
 
 import (
@@ -12,9 +13,43 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 )
+
+// tappableSwatch is a custom widget that handles both primary and secondary taps.
+type tappableSwatch struct {
+	widget.BaseWidget
+	content       fyne.CanvasObject
+	onTapped      func()
+	onSecondaryTap func()
+}
+
+func newTappableSwatch(content fyne.CanvasObject, onTapped, onSecondaryTap func()) *tappableSwatch {
+	t := &tappableSwatch{
+		content:        content,
+		onTapped:       onTapped,
+		onSecondaryTap: onSecondaryTap,
+	}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (t *tappableSwatch) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(t.content)
+}
+
+func (t *tappableSwatch) Tapped(_ *fyne.PointEvent) {
+	if t.onTapped != nil {
+		t.onTapped()
+	}
+}
+
+func (t *tappableSwatch) TappedSecondary(_ *fyne.PointEvent) {
+	if t.onSecondaryTap != nil {
+		t.onSecondaryTap()
+	}
+}
 
 // PaletteWidget manages the CPC palette display and editing.
 type PaletteWidget struct {
@@ -24,9 +59,11 @@ type PaletteWidget struct {
 	container *widget.Card
 
 	// Palette display - color swatches with labels below
-	penSwatches   [16]*canvas.Rectangle
-	penLabels     [16]*widget.Label
-	penContainers [16]*fyne.Container
+	penSwatches    [16]*canvas.Rectangle
+	penLabels      [16]*widget.Label
+	penOverlays    [16]*canvas.Text
+	penContainers  [16]*fyne.Container
+	penTappables   [16]*tappableSwatch
 
 	// Controls
 	autoOptimizeBtn *widget.Button
@@ -53,38 +90,81 @@ func luminance(r, g, b uint8) float64 {
 	return 0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)
 }
 
+// penState represents the tri-state of a pen: normal, locked, or disabled.
+type penState int
+
+const (
+	penNormal   penState = iota
+	penLocked
+	penDisabled
+)
+
+// getPenState returns the current state of a pen.
+func (pw *PaletteWidget) getPenState(pen int) penState {
+	if pw.app.params.DisableState[pen] != 0 {
+		return penDisabled
+	}
+	if pw.app.params.LockState[pen] != 0 {
+		return penLocked
+	}
+	return penNormal
+}
+
+// cyclePenState cycles Normal -> Locked -> Disabled -> Normal.
+func (pw *PaletteWidget) cyclePenState(pen int) {
+	switch pw.getPenState(pen) {
+	case penNormal:
+		pw.app.params.LockState[pen] = 1
+		pw.app.params.DisableState[pen] = 0
+	case penLocked:
+		pw.app.params.LockState[pen] = 0
+		pw.app.params.DisableState[pen] = 1
+	case penDisabled:
+		pw.app.params.LockState[pen] = 0
+		pw.app.params.DisableState[pen] = 0
+	}
+	pw.refreshPalette()
+	pw.app.UpdatePalette()
+}
+
 // setupPaletteDisplay creates the 16 palette pen swatches with labels below.
 func (pw *PaletteWidget) setupPaletteDisplay() {
 	for i := 0; i < 16; i++ {
 		penIndex := i // Capture for closure
 
-		// Color swatch
+		// Color swatch -- compact size
 		pw.penSwatches[i] = canvas.NewRectangle(color.RGBA{0, 0, 0, 255})
-		pw.penSwatches[i].SetMinSize(fyne.NewSize(28, 22))
-		pw.penSwatches[i].CornerRadius = 3
+		pw.penSwatches[i].SetMinSize(fyne.NewSize(24, 18))
+		pw.penSwatches[i].CornerRadius = 2
 
-		// Small label below showing pen number
+		// Overlay text for lock/disable indicators
+		pw.penOverlays[i] = canvas.NewText("", color.White)
+		pw.penOverlays[i].TextSize = 11
+		pw.penOverlays[i].TextStyle = fyne.TextStyle{Bold: true}
+		pw.penOverlays[i].Alignment = fyne.TextAlignCenter
+
+		// Pen number label
 		pw.penLabels[i] = widget.NewLabel(fmt.Sprintf("%d", i))
 		pw.penLabels[i].Alignment = fyne.TextAlignCenter
 		pw.penLabels[i].TextStyle = fyne.TextStyle{Monospace: true}
 
-		// Invisible button overlaying the swatch for click handling
-		clickBtn := widget.NewButton("", func() {
-			pw.editPenColor(penIndex)
-		})
-		clickBtn.Importance = widget.LowImportance
-
-		// Stack: swatch with invisible button on top
-		swatchWithClick := container.NewStack(
+		// Stack swatch + overlay indicator
+		swatchStack := container.NewStack(
 			pw.penSwatches[i],
-			clickBtn,
+			container.NewCenter(pw.penOverlays[i]),
 		)
 
-		// Border layout: label on bottom, swatch fills center — no gap
-		pw.penContainers[i] = container.NewBorder(
-			nil, pw.penLabels[i], nil, nil,
-			swatchWithClick,
+		// Compact layout: label below swatch with no gap
+		penCell := container.NewBorder(nil, pw.penLabels[i], nil, nil, swatchStack)
+
+		// Wrap in tappable for left-click (edit) and right-click (cycle state)
+		pw.penTappables[i] = newTappableSwatch(
+			penCell,
+			func() { pw.editPenColor(penIndex) },
+			func() { pw.cyclePenState(penIndex) },
 		)
+
+		pw.penContainers[i] = container.NewStack(pw.penTappables[i])
 	}
 }
 
@@ -98,6 +178,7 @@ func (pw *PaletteWidget) setupControls() {
 	pw.lockAllBtn = widget.NewButton("Lock All", func() {
 		for i := 0; i < 16; i++ {
 			pw.app.params.LockState[i] = 1
+			pw.app.params.DisableState[i] = 0
 		}
 		pw.refreshPalette()
 		pw.app.UpdatePalette()
@@ -106,6 +187,7 @@ func (pw *PaletteWidget) setupControls() {
 	pw.unlockAllBtn = widget.NewButton("Unlock All", func() {
 		for i := 0; i < 16; i++ {
 			pw.app.params.LockState[i] = 0
+			pw.app.params.DisableState[i] = 0
 		}
 		pw.refreshPalette()
 		pw.app.UpdatePalette()
@@ -141,14 +223,14 @@ func (pw *PaletteWidget) buildLayout() {
 func (pw *PaletteWidget) editPenColor(penIndex int) {
 	colorPicker := pw.createCpcColorPicker(penIndex)
 
-	dialog := dialog.NewCustom(
+	d := dialog.NewCustom(
 		fmt.Sprintf("Edit Pen %d Color", penIndex),
 		"Close",
 		colorPicker,
 		pw.app.window,
 	)
 
-	dialog.Show()
+	d.Show()
 }
 
 // createCpcColorPicker creates a color picker showing the 27 CPC colors or 4096 CPC+ colors.
@@ -164,6 +246,7 @@ func (pw *PaletteWidget) createStandardCpcColorPicker(penIndex int) *fyne.Contai
 	colorGrid := container.NewGridWithColumns(9)
 
 	cpcPalette := cpc.GetCpcRgb()
+	currentColor := pw.app.params.Palette[penIndex]
 
 	for colorIndex := 0; colorIndex < 27; colorIndex++ {
 		colorValue := colorIndex
@@ -178,6 +261,12 @@ func (pw *PaletteWidget) createStandardCpcColorPicker(penIndex int) *fyne.Contai
 
 		colorRect := canvas.NewRectangle(fyneColor)
 		colorRect.SetMinSize(fyne.NewSize(30, 30))
+
+		// Highlight the currently selected color with a border
+		if colorValue == currentColor {
+			colorRect.StrokeColor = color.White
+			colorRect.StrokeWidth = 3
+		}
 
 		colorBtn := widget.NewButton("", func() {
 			pw.setPenColor(penIndex, colorValue)
@@ -261,17 +350,40 @@ func (pw *PaletteWidget) refreshPalette() {
 			r, g, b = uint8(cpcColor.R), uint8(cpcColor.V), uint8(cpcColor.B)
 		}
 
-		fyneColor := color.RGBA{R: r, G: g, B: b, A: 255}
-		pw.penSwatches[i].FillColor = fyneColor
+		state := pw.getPenState(i)
 
-		// Label with lock indicator
-		label := fmt.Sprintf("%d", i)
-		if pw.app.params.LockState[i] != 0 {
-			label = fmt.Sprintf("%d*", i)
+		// Set swatch color -- gray out disabled pens
+		switch state {
+		case penDisabled:
+			// Desaturated/dimmed version of the color
+			gray := uint8(luminance(r, g, b) * 0.4)
+			pw.penSwatches[i].FillColor = color.RGBA{R: gray, G: gray, B: gray, A: 255}
+		default:
+			pw.penSwatches[i].FillColor = color.RGBA{R: r, G: g, B: b, A: 255}
 		}
-		pw.penLabels[i].SetText(label)
+
+		// Set overlay indicator text
+		switch state {
+		case penLocked:
+			pw.penOverlays[i].Text = "L"
+		case penDisabled:
+			pw.penOverlays[i].Text = "X"
+		default:
+			pw.penOverlays[i].Text = ""
+		}
+
+		// Contrast overlay text color against swatch background
+		if luminance(r, g, b) > 128 {
+			pw.penOverlays[i].Color = color.RGBA{0, 0, 0, 255}
+		} else {
+			pw.penOverlays[i].Color = color.RGBA{255, 255, 255, 255}
+		}
+
+		// Pen number label
+		pw.penLabels[i].SetText(fmt.Sprintf("%d", i))
 
 		pw.penSwatches[i].Refresh()
+		pw.penOverlays[i].Refresh()
 	}
 }
 

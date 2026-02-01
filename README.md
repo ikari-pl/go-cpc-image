@@ -13,7 +13,7 @@ Phase 1 focused on core CPC hardware constants and types.
 ### Completed Components
 
 1. **Go Module** - `/go.mod`
-   - Initialized with `github.com/ikari/go-cpc-image`
+   - Initialized with `github.com/ikari-pl/go-cpc-image`
    - Go 1.21+ compatibility
 
 2. **Color Handling** - `pkg/bitmap/color.go`
@@ -169,8 +169,8 @@ go run pkg/test_implementation.go  # Phase 2 testing
 package main
 
 import (
-    "github.com/ikari/go-cpc-image/pkg/fileio"
-    "github.com/ikari/go-cpc-image/pkg/compress"
+    "github.com/ikari-pl/go-cpc-image/pkg/fileio"
+    "github.com/ikari-pl/go-cpc-image/pkg/compress"
 )
 
 func main() {

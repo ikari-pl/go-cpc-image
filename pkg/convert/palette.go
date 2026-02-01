@@ -3,8 +3,8 @@
 package convert
 
 import (
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 )
 
 // abs returns the absolute value of an integer

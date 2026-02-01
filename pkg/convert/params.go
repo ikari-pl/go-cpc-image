@@ -16,80 +16,92 @@ const (
 // This structure maintains compatibility with the C# Param class.
 type Param struct {
 	// Size and positioning
-	SMode        SizeMode // Size mode
-	SizeX, SizeY int      // Target size in UserSize mode
-	PosX, PosY   int      // Position offset in UserSize mode
+	SMode        SizeMode `json:"sMode"`
+	SizeX        int      `json:"sizeX"`
+	SizeY        int      `json:"sizeY"`
+	PosX         int      `json:"posX"`
+	PosY         int      `json:"posY"`
 
 	// Core conversion settings
-	Method      string    // Dithering method name
-	Pct          int       // Palette optimization percentage
-	LockState    [16]int   // Palette pen lock states
-	DisableState [16]int   // Palette pen disable states
-	Palette      [16]int   // Current CPC palette (pen to color mapping)
+	Method       string   `json:"method"`
+	Pct          int      `json:"pct"`
+	LockState    [16]int  `json:"lockState"`
+	DisableState [16]int  `json:"disableState"`
+	Palette      [16]int  `json:"palette"`
 
 	// Color adjustment
-	PctLumi     int // Luminosity percentage
-	PctSat      int // Saturation percentage
-	PctContrast int // Contrast percentage
-	PctRed      int // Red channel percentage
-	PctGreen    int // Green channel percentage
-	PctBlue     int // Blue channel percentage
+	PctLumi     int `json:"pctLumi"`
+	PctSat      int `json:"pctSat"`
+	PctContrast int `json:"pctContrast"`
+	PctRed      int `json:"pctRed"`
+	PctGreen    int `json:"pctGreen"`
+	PctBlue     int `json:"pctBlue"`
 
 	// CPC settings
-	CpcPlus     bool // Use CPC+ mode (4096 colors vs 27)
-	VirtualMode int  // Virtual screen mode (0-11)
-	NumCols      int  // Number of columns
-	NumLines    int  // Number of lines
+	CpcPlus     bool `json:"cpcPlus"`
+	VirtualMode int  `json:"virtualMode"`
+	YEgx        int  `json:"yEgx"`
+	NumCols     int  `json:"numCols"`
+	NumLines    int  `json:"numLines"`
 
 	// Conversion options
-	NewMethod  bool // Use new conversion method
-	ReductPal1  bool // Palette reduction option 1
-	ReductPal2  bool // Palette reduction option 2
-	ReductPal3  bool // Palette reduction option 3
-	ReductPal4  bool // Palette reduction option 4
-	NewSortPal  byte // New palette sorting method
-	SetPalCpc   bool // Set CPC palette
-	Smoothing     bool // Smoothing
-	TrueColorDither     bool // Trame true color
-	NewReduc    bool // New color reduction
-	DiffErr     bool // Error diffusion
-	Filter      bool // Apply filter
+	NewMethod       bool `json:"newMethod"`
+	ReductPal1      bool `json:"reductPal1"`
+	ReductPal2      bool `json:"reductPal2"`
+	ReductPal3      bool `json:"reductPal3"`
+	ReductPal4      bool `json:"reductPal4"`
+	NewSortPal      byte `json:"newSortPal"`
+	SetPalCpc       bool `json:"setPalCpc"`
+	Smoothing       bool `json:"smoothing"`
+	TrueColorDither bool `json:"trueColorDither"`
+	NewReduc        bool `json:"newReduc"`
+	DiffErr         bool `json:"diffErr"`
+	Filter          bool `json:"filter"`
 
 	// File I/O options
-	WithCode    bool // Include display code
-	WithPalette bool // Include palette data
+	WithCode    bool `json:"withCode"`
+	WithPalette bool `json:"withPalette"`
 
 	// Mode-specific settings
-	TrackModeX int // Mode X track setting
+	TrackModeX int `json:"trackModeX"`
 
 	// File paths
-	LastReadPath string // Last read directory
-	LastSavePath string // Last save directory
+	LastReadPath string `json:"lastReadPath"`
+	LastSavePath string `json:"lastSavePath"`
 
 	// Color conversion coefficients for RGB to luminance
-	CoefR int // Red coefficient (default: 9798)
-	CoefV int // Green coefficient (default: 19235)
-	CoefB int // Blue coefficient (default: 3735)
+	CoefR int `json:"coefR"`
+	CoefV int `json:"coefV"`
+	CoefB int `json:"coefB"`
 
 	// RGB level thresholds for 3-level quantization (27 colors)
-	CstR1, CstR2, CstR3, CstR4 int // Red thresholds
-	CstV1, CstV2, CstV3, CstV4 int // Green thresholds
-	CstB1, CstB2, CstB3, CstB4 int // Blue thresholds
+	CstR1 int `json:"cstR1"`
+	CstR2 int `json:"cstR2"`
+	CstR3 int `json:"cstR3"`
+	CstR4 int `json:"cstR4"`
+	CstV1 int `json:"cstV1"`
+	CstV2 int `json:"cstV2"`
+	CstV3 int `json:"cstV3"`
+	CstV4 int `json:"cstV4"`
+	CstB1 int `json:"cstB1"`
+	CstB2 int `json:"cstB2"`
+	CstB3 int `json:"cstB3"`
+	CstB4 int `json:"cstB4"`
 
 	// Color depth and options
-	BitsRGB int // Color bit depth (default: 24)
+	BitsRGB int `json:"bitsRGB"`
 
 	// K-means clustering options
-	KMeansDist  int  // K-means distance metric
-	KMeansColor int  // Number of K-means colors
-	KMeansPass  int  // Number of K-means passes
-	AutoRecalc  bool // Auto-recalculate palette
+	KMeansDist  int  `json:"kMeansDist"`
+	KMeansColor int  `json:"kMeansColor"`
+	KMeansPass  int  `json:"kMeansPass"`
+	AutoRecalc  bool `json:"autoRecalc"`
 
 	// Localization
-	Language string // Language ("FR" or "EN")
+	Language string `json:"language"`
 
 	// Import/Draw mode
-	ModeImpDraw bool // Import draw mode
+	ModeImpDraw bool `json:"modeImpDraw"`
 }
 
 // NewDefaultParam creates a Param with default values matching the C# version.

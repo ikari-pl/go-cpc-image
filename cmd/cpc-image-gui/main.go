@@ -10,8 +10,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 
-	"github.com/ikari/go-cpc-image/internal/gui"
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/internal/gui"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 )
 
 func main() {

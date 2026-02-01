@@ -3,8 +3,8 @@
 package convert
 
 import (
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 )
 
 // SimpleCpcImage represents a CPC image with conversion context for Mode X.

@@ -6,8 +6,8 @@ package render
 import (
 	"image"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 )
 
 // min returns the minimum of two integers
@@ -28,6 +28,7 @@ type BitmapCpc struct {
 	NumCol       int               // Number of columns (80 or 96)
 	NumLig       int               // Number of lines (200 or 272)
 	VirtualMode int               // Virtual screen mode
+	YEgx        int               // EGX line offset (0 or 2)
 	IsComputed      bool              // Whether screen data is calculated
 }
 
@@ -213,7 +214,7 @@ func (b *BitmapCpc) DrawBitmap(numCol, numLig int, realWidth int, isSprite bool)
 			mode = 1 // Mode X and Split use Mode 1 encoding
 		} else if b.VirtualMode >= 3 {
 			// EGX modes alternate between modes
-			if (y&2) == 0 { // yEgx would be stored in context
+			if (y&2) == b.YEgx {
 				mode = b.VirtualMode - 2
 			} else {
 				mode = b.VirtualMode - 3
@@ -281,7 +282,7 @@ func (b *BitmapCpc) Render(bmp *bitmap.DirectBitmap, offsetX int) *bitmap.Direct
 		cpcAddr := (y>>4)*b.NumCol + (y&14)*0x400
 
 		// Handle overscan offset for large screens
-		if y > 255 && (b.NumCol*b.NumLig > 0x3FFF) {
+		if y > 255 && (b.NumCol*b.NumLig > 0x4000) {
 			cpcAddr += 0x3800
 		}
 

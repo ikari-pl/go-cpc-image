@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/cpc"
-	"github.com/ikari/go-cpc-image/pkg/render"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/render"
 )
 
 // TestMode0EncodeDecodeRoundtrip verifies that EncodeToCpc → DrawBitmap

@@ -14,10 +14,10 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/convert"
-	"github.com/ikari/go-cpc-image/pkg/cpc"
-	"github.com/ikari/go-cpc-image/pkg/render"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/convert"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/render"
 )
 
 // convRequest is sent to the conversion worker goroutine.

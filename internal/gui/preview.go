@@ -12,6 +12,50 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// drawableRaster is a custom widget that wraps a Raster and handles mouse events for drawing.
+type drawableRaster struct {
+	widget.BaseWidget
+	raster      *canvas.Raster
+	onMouseDown func(fyne.Position, fyne.Size)
+	onMouseDrag func(fyne.Position, fyne.Size)
+	onMouseUp   func(fyne.Position, fyne.Size)
+}
+
+func newDrawableRaster(raster *canvas.Raster) *drawableRaster {
+	d := &drawableRaster{raster: raster}
+	d.ExtendBaseWidget(d)
+	return d
+}
+
+func (d *drawableRaster) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(d.raster)
+}
+
+func (d *drawableRaster) MinSize() fyne.Size {
+	return d.raster.MinSize()
+}
+
+func (d *drawableRaster) Tapped(ev *fyne.PointEvent) {
+	if d.onMouseDown != nil {
+		d.onMouseDown(ev.Position, d.Size())
+	}
+	if d.onMouseUp != nil {
+		d.onMouseUp(ev.Position, d.Size())
+	}
+}
+
+func (d *drawableRaster) Dragged(ev *fyne.DragEvent) {
+	if d.onMouseDrag != nil {
+		d.onMouseDrag(ev.Position, d.Size())
+	}
+}
+
+func (d *drawableRaster) DragEnd() {
+	if d.onMouseUp != nil {
+		d.onMouseUp(fyne.Position{X: -1, Y: -1}, d.Size())
+	}
+}
+
 // PreviewWidget manages the split preview display showing source and CPC images.
 type PreviewWidget struct {
 	app *Application
@@ -19,11 +63,13 @@ type PreviewWidget struct {
 	// Source image display
 	sourceContainer *fyne.Container
 	sourceRaster    *canvas.Raster
+	sourceDrawable  *drawableRaster
 	sourceImage     *image.RGBA
 
 	// CPC image display
 	cpcContainer *fyne.Container
 	cpcRaster    *canvas.Raster
+	cpcDrawable  *drawableRaster
 
 	// Zoom controls
 	zoomLevel     int // 1x, 2x, 4x
@@ -41,9 +87,145 @@ func NewPreviewWidget(app *Application) (*PreviewWidget, error) {
 	pw.sourceRaster = canvas.NewRaster(pw.drawSourceImage)
 	pw.sourceRaster.SetMinSize(fyne.NewSize(320, 200))
 
+	// Wrap source raster in drawable for crop mouse events
+	pw.sourceDrawable = newDrawableRaster(pw.sourceRaster)
+	pw.sourceDrawable.onMouseDown = func(pos fyne.Position, size fyne.Size) {
+		if !app.cropEnabled {
+			return
+		}
+		nx, ny := pw.screenToNormalized(pos, size)
+		if nx < 0 || ny < 0 {
+			return
+		}
+		app.cropX1 = nx
+		app.cropY1 = ny
+		app.cropX2 = nx
+		app.cropY2 = ny
+		app.cropDragging = true
+		pw.sourceRaster.Refresh()
+	}
+	pw.sourceDrawable.onMouseDrag = func(pos fyne.Position, size fyne.Size) {
+		if !app.cropEnabled || !app.cropDragging {
+			return
+		}
+		nx, ny := pw.screenToNormalized(pos, size)
+		// Clamp to 0-1
+		if nx < 0 {
+			nx = 0
+		}
+		if nx > 1 {
+			nx = 1
+		}
+		if ny < 0 {
+			ny = 0
+		}
+		if ny > 1 {
+			ny = 1
+		}
+
+		if app.cropLockAspect && app.cropAspect > 0 {
+			// Enforce aspect ratio from the anchor point (cropX1, cropY1)
+			dx := nx - app.cropX1
+			dy := ny - app.cropY1
+			// Use source image aspect to convert normalized coords to pixel space
+			imgAspect := 1.0
+			if pw.sourceImage != nil {
+				srcB := pw.sourceImage.Bounds()
+				if srcB.Dy() > 0 {
+					imgAspect = float64(srcB.Dx()) / float64(srcB.Dy())
+				}
+			}
+			// In pixel space: dx_px = dx * imgW, dy_px = dy * imgH
+			// We want dx_px / dy_px = cropAspect
+			// So dx * imgW / (dy * imgH) = cropAspect
+			// dx / dy = cropAspect / imgAspect
+			targetRatio := app.cropAspect / imgAspect
+			if dy != 0 {
+				absDx := dx
+				if absDx < 0 {
+					absDx = -absDx
+				}
+				absDy := dy
+				if absDy < 0 {
+					absDy = -absDy
+				}
+				// Fit to the smaller dimension
+				if absDx/absDy > targetRatio {
+					// dx is too wide, adjust it
+					sign := 1.0
+					if dx < 0 {
+						sign = -1.0
+					}
+					dx = sign * absDy * targetRatio
+				} else {
+					// dy is too tall, adjust it
+					sign := 1.0
+					if dy < 0 {
+						sign = -1.0
+					}
+					dy = sign * absDx / targetRatio
+				}
+			}
+			nx = app.cropX1 + dx
+			ny = app.cropY1 + dy
+			// Clamp again
+			if nx < 0 {
+				nx = 0
+			}
+			if nx > 1 {
+				nx = 1
+			}
+			if ny < 0 {
+				ny = 0
+			}
+			if ny > 1 {
+				ny = 1
+			}
+		}
+
+		app.cropX2 = nx
+		app.cropY2 = ny
+		pw.sourceRaster.Refresh()
+	}
+	pw.sourceDrawable.onMouseUp = func(pos fyne.Position, size fyne.Size) {
+		if !app.cropEnabled {
+			return
+		}
+		app.cropDragging = false
+		// Trigger conversion with the new crop
+		if app.controls != nil && app.controls.autoConvert != nil && app.controls.autoConvert.Checked {
+			app.TriggerConversion()
+		}
+		pw.sourceRaster.Refresh()
+	}
+
 	// Create CPC image raster
 	pw.cpcRaster = canvas.NewRaster(pw.drawCpcImage)
 	pw.cpcRaster.SetMinSize(fyne.NewSize(320, 200))
+
+	// Wrap in drawable for mouse events
+	pw.cpcDrawable = newDrawableRaster(pw.cpcRaster)
+	pw.cpcDrawable.onMouseDown = func(pos fyne.Position, size fyne.Size) {
+		if app.editor == nil {
+			return
+		}
+		cx, cy := app.editor.ScreenToCpc(pos.X, pos.Y, size.Width, size.Height)
+		app.editor.OnMouseDown(cx, cy)
+	}
+	pw.cpcDrawable.onMouseDrag = func(pos fyne.Position, size fyne.Size) {
+		if app.editor == nil {
+			return
+		}
+		cx, cy := app.editor.ScreenToCpc(pos.X, pos.Y, size.Width, size.Height)
+		app.editor.OnMouseDrag(cx, cy)
+	}
+	pw.cpcDrawable.onMouseUp = func(pos fyne.Position, size fyne.Size) {
+		if app.editor == nil {
+			return
+		}
+		cx, cy := app.editor.ScreenToCpc(pos.X, pos.Y, size.Width, size.Height)
+		app.editor.OnMouseUp(cx, cy)
+	}
 
 	// Create zoom controls
 	pw.setupZoomControls()
@@ -52,7 +234,7 @@ func NewPreviewWidget(app *Application) (*PreviewWidget, error) {
 	pw.sourceContainer = container.NewBorder(
 		widget.NewLabel("Source Image"),
 		nil, nil, nil,
-		pw.sourceRaster,
+		pw.sourceDrawable,
 	)
 
 	pw.cpcContainer = container.NewBorder(
@@ -62,7 +244,7 @@ func NewPreviewWidget(app *Application) (*PreviewWidget, error) {
 			pw.zoomContainer,
 		),
 		nil, nil, nil,
-		pw.cpcRaster,
+		pw.cpcDrawable,
 	)
 
 	return pw, nil
@@ -131,14 +313,109 @@ func (pw *PreviewWidget) drawSourceImage(w, h int) image.Image {
 	}
 
 	// Scale source image to fit the canvas
-	return pw.scaleImage(pw.sourceImage, w, h)
+	img := pw.scaleImage(pw.sourceImage, w, h)
+
+	// Draw crop overlay if enabled
+	if pw.app.cropEnabled {
+		rgbaImg, ok := img.(*image.RGBA)
+		if !ok {
+			return img
+		}
+
+		srcBounds := pw.sourceImage.Bounds()
+		srcW := float64(srcBounds.Dx())
+		srcH := float64(srcBounds.Dy())
+
+		// Recalculate image placement (same as scaleImage)
+		srcAspect := srcW / srcH
+		dstAspect := float64(w) / float64(h)
+
+		var scaledW, scaledH float64
+		var offsetX, offsetY float64
+
+		if srcAspect > dstAspect {
+			scaledW = float64(w)
+			scaledH = float64(w) / srcAspect
+			offsetY = (float64(h) - scaledH) / 2
+		} else {
+			scaledW = float64(h) * srcAspect
+			scaledH = float64(h)
+			offsetX = (float64(w) - scaledW) / 2
+		}
+
+		// Normalize crop coords (ensure x1<x2, y1<y2)
+		cx1, cx2 := pw.app.cropX1, pw.app.cropX2
+		cy1, cy2 := pw.app.cropY1, pw.app.cropY2
+		if cx1 > cx2 {
+			cx1, cx2 = cx2, cx1
+		}
+		if cy1 > cy2 {
+			cy1, cy2 = cy2, cy1
+		}
+
+		// Convert normalized crop to pixel coords in the rendered image
+		cropPx1 := int(offsetX + cx1*scaledW)
+		cropPy1 := int(offsetY + cy1*scaledH)
+		cropPx2 := int(offsetX + cx2*scaledW)
+		cropPy2 := int(offsetY + cy2*scaledH)
+
+		// Draw semi-transparent dark overlay on non-selected areas
+		overlay := color.RGBA{0, 0, 0, 128}
+		imgX0 := int(offsetX)
+		imgY0 := int(offsetY)
+		imgX1 := int(offsetX + scaledW)
+		imgY1 := int(offsetY + scaledH)
+
+		for y := imgY0; y < imgY1; y++ {
+			for x := imgX0; x < imgX1; x++ {
+				if x >= cropPx1 && x < cropPx2 && y >= cropPy1 && y < cropPy2 {
+					continue // inside crop region, leave as-is
+				}
+				// Blend overlay
+				if x >= 0 && x < w && y >= 0 && y < h {
+					orig := rgbaImg.RGBAAt(x, y)
+					orig.R = uint8((int(orig.R)*128 + int(overlay.R)*128) / 256)
+					orig.G = uint8((int(orig.G)*128 + int(overlay.G)*128) / 256)
+					orig.B = uint8((int(orig.B)*128 + int(overlay.B)*128) / 256)
+					rgbaImg.SetRGBA(x, y, orig)
+				}
+			}
+		}
+
+		// Draw crop rectangle border (white dashed-style)
+		borderColor := color.RGBA{255, 255, 255, 255}
+		for x := cropPx1; x < cropPx2; x++ {
+			if x >= 0 && x < w {
+				if cropPy1 >= 0 && cropPy1 < h {
+					rgbaImg.Set(x, cropPy1, borderColor)
+				}
+				if cropPy2-1 >= 0 && cropPy2-1 < h {
+					rgbaImg.Set(x, cropPy2-1, borderColor)
+				}
+			}
+		}
+		for y := cropPy1; y < cropPy2; y++ {
+			if y >= 0 && y < h {
+				if cropPx1 >= 0 && cropPx1 < w {
+					rgbaImg.Set(cropPx1, y, borderColor)
+				}
+				if cropPx2-1 >= 0 && cropPx2-1 < w {
+					rgbaImg.Set(cropPx2-1, y, borderColor)
+				}
+			}
+		}
+
+		return rgbaImg
+	}
+
+	return img
 }
 
 // drawCpcImage renders the CPC image to the canvas with zoom.
+// Always displays at 4:3 aspect ratio (matching a real CPC monitor).
 func (pw *PreviewWidget) drawCpcImage(w, h int) image.Image {
 	cpcImg := pw.app.GetCpcDisplay()
 	if cpcImg == nil {
-		// Return empty black image
 		img := image.NewRGBA(image.Rect(0, 0, w, h))
 		black := color.RGBA{0, 0, 0, 255}
 		for y := 0; y < h; y++ {
@@ -149,12 +426,11 @@ func (pw *PreviewWidget) drawCpcImage(w, h int) image.Image {
 		return img
 	}
 
-	// Apply zoom scaling
+	// Apply zoom scaling with forced 4:3 aspect ratio
 	if pw.zoomLevel > 1 {
-		return pw.scaleImageNearest(cpcImg, w, h)
+		return pw.scaleImageWithAspect(cpcImg, w, h, 4.0/3.0, true)
 	}
-
-	return pw.scaleImage(cpcImg, w, h)
+	return pw.scaleImageWithAspect(cpcImg, w, h, 4.0/3.0, false)
 }
 
 // scaleImage scales an image to fit the given dimensions using bilinear interpolation.
@@ -262,6 +538,103 @@ func (pw *PreviewWidget) scaleImageNearest(src *image.RGBA, w, h int) image.Imag
 	}
 
 	return dst
+}
+
+// scaleImageWithAspect scales src into w×h, forcing a specific display aspect ratio.
+// The source pixels are mapped to a virtual rectangle with the given aspect ratio,
+// letterboxed/pillarboxed into the destination. If nearest is true, uses nearest-neighbor.
+func (pw *PreviewWidget) scaleImageWithAspect(src *image.RGBA, w, h int, aspect float64, nearest bool) image.Image {
+	if src == nil {
+		return image.NewRGBA(image.Rect(0, 0, w, h))
+	}
+
+	srcBounds := src.Bounds()
+	srcW := srcBounds.Dx()
+	srcH := srcBounds.Dy()
+	if srcW == 0 || srcH == 0 {
+		return image.NewRGBA(image.Rect(0, 0, w, h))
+	}
+
+	// Fit a 4:3 rectangle into w×h
+	dstAspect := float64(w) / float64(h)
+	var scaledW, scaledH int
+	if aspect > dstAspect {
+		scaledW = w
+		scaledH = int(float64(w) / aspect)
+	} else {
+		scaledH = h
+		scaledW = int(float64(h) * aspect)
+	}
+
+	offsetX := (w - scaledW) / 2
+	offsetY := (h - scaledH) / 2
+
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+
+	xRatio := float64(srcW) / float64(scaledW)
+	yRatio := float64(srcH) / float64(scaledH)
+
+	for y := 0; y < scaledH; y++ {
+		srcY := int(float64(y) * yRatio)
+		if srcY >= srcH {
+			srcY = srcH - 1
+		}
+		for x := 0; x < scaledW; x++ {
+			srcX := int(float64(x) * xRatio)
+			if srcX >= srcW {
+				srcX = srcW - 1
+			}
+			dst.Set(offsetX+x, offsetY+y, src.At(srcX, srcY))
+		}
+	}
+
+	return dst
+}
+
+// screenToNormalized converts a screen position within the source raster widget
+// to normalized (0-1) coordinates relative to the actual image area (accounting for letterbox).
+func (pw *PreviewWidget) screenToNormalized(pos fyne.Position, widgetSize fyne.Size) (float64, float64) {
+	if pw.sourceImage == nil {
+		return -1, -1
+	}
+
+	w := float64(widgetSize.Width)
+	h := float64(widgetSize.Height)
+	if w <= 0 || h <= 0 {
+		return -1, -1
+	}
+
+	srcBounds := pw.sourceImage.Bounds()
+	srcW := float64(srcBounds.Dx())
+	srcH := float64(srcBounds.Dy())
+	if srcW <= 0 || srcH <= 0 {
+		return -1, -1
+	}
+
+	// Calculate where the image is drawn (same logic as scaleImage)
+	srcAspect := srcW / srcH
+	dstAspect := w / h
+
+	var scaledW, scaledH float64
+	var offsetX, offsetY float64
+
+	if srcAspect > dstAspect {
+		scaledW = w
+		scaledH = w / srcAspect
+		offsetX = 0
+		offsetY = (h - scaledH) / 2
+	} else {
+		scaledW = h * srcAspect
+		scaledH = h
+		offsetX = (w - scaledW) / 2
+		offsetY = 0
+	}
+
+	// Convert to normalized coords within the image area
+	nx := (float64(pos.X) - offsetX) / scaledW
+	ny := (float64(pos.Y) - offsetY) / scaledH
+
+	return nx, ny
 }
 
 // SetSourceImage updates the displayed source image.

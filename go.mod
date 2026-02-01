@@ -1,4 +1,4 @@
-module github.com/ikari/go-cpc-image
+module github.com/ikari-pl/go-cpc-image
 
 go 1.21
 

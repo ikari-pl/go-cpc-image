@@ -4,10 +4,10 @@ package main
 import (
 	"fmt"
 
-	"github.com/ikari/go-cpc-image/pkg/animation"
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
-	"github.com/ikari/go-cpc-image/pkg/convert"
-	"github.com/ikari/go-cpc-image/pkg/splitscreen"
+	"github.com/ikari-pl/go-cpc-image/pkg/animation"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/convert"
+	"github.com/ikari-pl/go-cpc-image/pkg/splitscreen"
 )
 
 func main() {

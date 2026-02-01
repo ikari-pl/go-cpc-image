@@ -5,7 +5,7 @@ package convert
 import (
 	"math"
 
-	"github.com/ikari/go-cpc-image/pkg/bitmap"
+	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 )
 
 // Bitmap represents a minimal bitmap interface for dithering operations

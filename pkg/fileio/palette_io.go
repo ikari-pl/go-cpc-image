@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ikari/go-cpc-image/pkg/cpc"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 )
 
 // CpcVGA lookup table for palette conversion (from C# SauveImage.cs)
