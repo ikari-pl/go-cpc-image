@@ -2,6 +2,8 @@
 
 Convert images to Amstrad CPC screen formats — standard modes, CPC+ 4096 colours, overscan, EGX, split-raster effects, animations, and more. Includes both a CLI and a Fyne-based GUI with live preview.
 
+<img width="100%" alt="Go CPC Image! in action" src="https://github.com/user-attachments/assets/6144148c-9aaa-40fd-95d9-2bfa75af28c3" />
+
 ## Features
 
 - **All CPC screen modes** — Mode 0 (16 colours), Mode 1 (4 colours), Mode 2 (2 colours)
