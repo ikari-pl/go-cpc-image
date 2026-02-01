@@ -113,9 +113,9 @@ All functions return descriptive errors for debugging and user feedback.
 
 ## Dependencies
 
-- `github.com/ikari/convimgcpc/pkg/cpc` - AMSDOS header handling
-- `github.com/ikari/convimgcpc/pkg/compress` - Compression algorithms
+- `github.com/ikari/go-cpc-image/pkg/cpc` - AMSDOS header handling
+- `github.com/ikari/go-cpc-image/pkg/compress` - Compression algorithms
 
 ## Compatibility
 
-This package maintains byte-exact compatibility with the original C# ConvImgCpc tool, ensuring that generated files work identically on real CPC hardware and emulators.
+This package maintains byte-exact compatibility with the original C# tool, ensuring that generated files work identically on real CPC hardware and emulators.

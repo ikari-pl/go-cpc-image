@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document summarizes the implementation of advanced conversion modes, split-screen effects, and animation support for the ConvImgCpc Go rewrite.
+This document summarizes the implementation of advanced conversion modes, split-screen effects, and animation support for go-cpc-image.
 
 ## Files Created
 

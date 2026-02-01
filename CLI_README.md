@@ -1,16 +1,16 @@
-# ConvImgCpc CLI Documentation
+# go-cpc-image CLI Documentation
 
-The ConvImgCpc command-line interface provides powerful image conversion capabilities for Amstrad CPC formats.
+The go-cpc-image command-line interface provides powerful image conversion capabilities for Amstrad CPC formats.
 
 ## Installation
 
 Build the CLI from source:
 
 ```bash
-go build ./cmd/convimgcpc/
+go build ./cmd/cpc-image/
 ```
 
-This creates the `convimgcpc` executable in the project root.
+This creates the `cpc-image` executable in the project root.
 
 ## Commands
 
@@ -20,7 +20,7 @@ Convert bitmap images (PNG, JPEG, BMP, GIF) to Amstrad CPC screen formats.
 
 **Basic Usage:**
 ```bash
-convimgcpc convert -i photo.png -o screen.scr -m 1
+cpc-image convert -i photo.png -o screen.scr -m 1
 ```
 
 **Flags:**
@@ -44,16 +44,16 @@ convimgcpc convert -i photo.png -o screen.scr -m 1
 **Examples:**
 ```bash
 # Convert to Mode 1 with Floyd-Steinberg dithering
-convimgcpc convert -i image.png -o screen.scr -m 1 -d floyd-steinberg
+cpc-image convert -i image.png -o screen.scr -m 1 -d floyd-steinberg
 
 # Convert to Mode 0 with overscan and CPC Plus
-convimgcpc convert -i photo.jpg -o screen.scr -m 0 --overscan --plus
+cpc-image convert -i photo.jpg -o screen.scr -m 0 --overscan --plus
 
 # Generate assembly source code
-convimgcpc convert -i image.bmp -o screen.asm -f asm -m 1
+cpc-image convert -i image.bmp -o screen.asm -f asm -m 1
 
 # Use Bayer dithering at 75%
-convimgcpc convert -i pic.png -o screen.scr -d bayer2 --dither-pct 75
+cpc-image convert -i pic.png -o screen.scr -d bayer2 --dither-pct 75
 ```
 
 ### pack - Compress binary files
@@ -62,7 +62,7 @@ Compress binary files using various compression algorithms.
 
 **Basic Usage:**
 ```bash
-convimgcpc pack -i data.bin -o data.zx0 --method zx0
+cpc-image pack -i data.bin -o data.zx0 --method zx0
 ```
 
 **Flags:**
@@ -79,10 +79,10 @@ convimgcpc pack -i data.bin -o data.zx0 --method zx0
 **Examples:**
 ```bash
 # Compress screen file with ZX0
-convimgcpc pack -i screen.scr -o screen.zx0 --method zx0
+cpc-image pack -i screen.scr -o screen.zx0 --method zx0
 
 # Compress with ZX1
-convimgcpc pack -i data.bin -o data.zx1 --method zx1
+cpc-image pack -i data.bin -o data.zx1 --method zx1
 ```
 
 ### info - Display file information
@@ -91,7 +91,7 @@ Show metadata about CPC files including AMSDOS headers, palette information, and
 
 **Basic Usage:**
 ```bash
-convimgcpc info screen.scr
+cpc-image info screen.scr
 ```
 
 **Supported File Types:**
@@ -102,10 +102,10 @@ convimgcpc info screen.scr
 **Examples:**
 ```bash
 # Show SCR file information
-convimgcpc info myscreen.scr
+cpc-image info myscreen.scr
 
 # Display disk information
-convimgcpc info mydisk.dsk
+cpc-image info mydisk.dsk
 ```
 
 ### palette - Extract or convert palettes
@@ -114,8 +114,8 @@ Extract palette from SCR files or convert between palette formats.
 
 **Basic Usage:**
 ```bash
-convimgcpc palette --extract screen.scr
-convimgcpc palette --convert input.pal output.kit
+cpc-image palette --extract screen.scr
+cpc-image palette --convert input.pal output.kit
 ```
 
 **Flags:**
@@ -125,10 +125,10 @@ convimgcpc palette --convert input.pal output.kit
 **Examples:**
 ```bash
 # Extract palette from screen
-convimgcpc palette --extract screen.scr
+cpc-image palette --extract screen.scr
 
 # Convert palette format
-convimgcpc palette --convert mypalette.pal mypalette.kit
+cpc-image palette --convert mypalette.pal mypalette.kit
 ```
 
 ## Global Flags
@@ -149,32 +149,32 @@ convimgcpc palette --convert mypalette.pal mypalette.kit
 ### Basic Image Conversion
 ```bash
 # Convert a photo to CPC Mode 1 format
-convimgcpc convert -i holiday.jpg -o holiday.scr -m 1
+cpc-image convert -i holiday.jpg -o holiday.scr -m 1
 ```
 
 ### High Quality Conversion
 ```bash
 # Use CPC Plus with minimal dithering for best quality
-convimgcpc convert -i artwork.png -o artwork.scr -m 1 --plus -d floyd-steinberg --dither-pct 25
+cpc-image convert -i artwork.png -o artwork.scr -m 1 --plus -d floyd-steinberg --dither-pct 25
 ```
 
 ### Overscan Graphics
 ```bash
 # Create overscan screen with Mode 0 for maximum colors
-convimgcpc convert -i background.png -o background.scr -m 0 --overscan --plus
+cpc-image convert -i background.png -o background.scr -m 0 --overscan --plus
 ```
 
 ### Assembly Development
 ```bash
 # Generate assembly source for inclusion in Z80 projects
-convimgcpc convert -i sprite.png -o sprite.asm -f asm -m 1
+cpc-image convert -i sprite.png -o sprite.asm -f asm -m 1
 ```
 
 ### File Compression
 ```bash
 # Convert and compress for minimum file size
-convimgcpc convert -i image.png -o screen.scr -m 1
-convimgcpc pack -i screen.scr -o screen.zx0 --method zx0
+cpc-image convert -i image.png -o screen.scr -m 1
+cpc-image pack -i screen.scr -o screen.zx0 --method zx0
 ```
 
 ## Output Summary

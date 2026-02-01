@@ -1,12 +1,12 @@
-# ConvImgCpc Fyne GUI Implementation
+# go-cpc-image Fyne GUI Implementation
 
-This document summarizes the complete Fyne GUI implementation for ConvImgCpc, following Phase 4 requirements from the GO_REWRITE_PLAN.md.
+This document summarizes the complete Fyne GUI implementation for go-cpc-image.
 
 ## Files Created
 
 ### Main Application
-- **`cmd/convimgcpc-gui/main.go`**: Entry point, creates Fyne app and main window
-- **`cmd/convimgcpc-gui/README.md`**: Detailed documentation of GUI architecture and features
+- **`cmd/cpc-image-gui/main.go`**: Entry point, creates Fyne app and main window
+- **`cmd/cpc-image-gui/README.md`**: Detailed documentation of GUI architecture and features
 
 ### GUI Components
 - **`internal/gui/app.go`**: Main application state management, layout orchestration
@@ -72,7 +72,7 @@ Closely matches original WinForms layout:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ [Open] [Demo] │ [Save] [Export▼] │ ConvImgCpc v1.0          │
+│ [Open] [Demo] │ [Save] [Export▼] │ Go CPC image! v1.0.0          │
 ├─────────────────────────────────────────────────────────────┤
 │                │                    │ ┌─────────────────── │
 │   Source       │   CPC Preview      │ │ Palette           │
@@ -120,12 +120,12 @@ Closely matches original WinForms layout:
 
 2. **Build the application**:
    ```bash
-   go build ./cmd/convimgcpc-gui/
+   go build ./cmd/cpc-image-gui/
    ```
 
 3. **Run with demo**:
    ```bash
-   ./convimgcpc-gui
+   ./cpc-image-gui
    # Click "Load Demo" to see test pattern
    # Adjust controls to see live preview updates
    ```

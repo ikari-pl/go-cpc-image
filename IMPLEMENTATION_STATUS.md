@@ -1,4 +1,4 @@
-# ConvImgCpc CLI Implementation Status
+# go-cpc-image CLI Implementation Status
 
 ## ✅ Completed
 
@@ -52,7 +52,7 @@
 ### Build System ✅
 - **Go module support** with proper dependencies
 - **Clean compilation** with no errors or warnings
-- **Executable generation** at `./convimgcpc`
+- **Executable generation** at `./cpc-image`
 - **Cross-platform compatibility** (Go standard)
 
 ## 🚧 Partially Implemented
@@ -114,7 +114,7 @@
 
 ### ✅ CLI Implementation
 ```
-cmd/convimgcpc/
+cmd/cpc-image/
 ├── main.go              ✅ Complete CLI with all commands and flags
 ```
 
@@ -169,17 +169,17 @@ The CLI is **ready for basic usage** with these functional commands:
 
 ```bash
 # Image conversion (core functionality works)
-convimgcpc convert -i image.png -o screen.scr -m 1
+cpc-image convert -i image.png -o screen.scr -m 1
 
 # File compression (fully functional)
-convimgcpc pack -i data.bin -o data.zx0 --method zx0
+cpc-image pack -i data.bin -o data.zx0 --method zx0
 
 # Information display (basic framework)
-convimgcpc info file.scr
+cpc-image info file.scr
 
 # Help system (fully functional)
-convimgcpc --help
-convimgcpc convert --help
+cpc-image --help
+cpc-image convert --help
 ```
 
-The implementation provides a **solid foundation** for the complete ConvImgCpc CLI experience, with the core conversion pipeline functional and ready for testing.
+The implementation provides a **solid foundation** for the complete go-cpc-image CLI experience, with the core conversion pipeline functional and ready for testing.

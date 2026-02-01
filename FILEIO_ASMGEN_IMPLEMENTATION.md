@@ -1,6 +1,6 @@
 # File I/O and Z80 Assembly Generation Implementation
 
-This document summarizes the implementation of Phases 2 and 5 of the ConvImgCpc Go rewrite, covering file I/O operations and Z80 assembly generation.
+This document summarizes the implementation of Phases 2 and 5 of go-cpc-image, covering file I/O operations and Z80 assembly generation.
 
 ## Completed Modules
 
@@ -177,4 +177,4 @@ This implementation provides the foundation for:
 4. **Real-time preview** and debugging tools
 5. **Cross-platform file format** support
 
-The modules are now ready for integration with the main ConvImgCpc application and provide a solid foundation for the complete Go rewrite.
+The modules are now ready for integration with the main go-cpc-image application and provide a solid foundation for the complete Go rewrite.

@@ -1,6 +1,6 @@
-# ConvImgCpc Go Port
+# Go CPC image!
 
-A Go port of the ConvImgCpc C# application for converting images to Amstrad CPC formats.
+A Go application for converting images to Amstrad CPC formats.
 
 ## Phase 2 Completion Status ✅
 
@@ -13,7 +13,7 @@ Phase 1 focused on core CPC hardware constants and types.
 ### Completed Components
 
 1. **Go Module** - `/go.mod`
-   - Initialized with `github.com/ikari/convimgcpc`
+   - Initialized with `github.com/ikari/go-cpc-image`
    - Go 1.21+ compatibility
 
 2. **Color Handling** - `pkg/bitmap/color.go`
@@ -69,7 +69,7 @@ Phase 1 focused on core CPC hardware constants and types.
 
 ### File Structure
 ```
-convimgcpc-go/
+go-cpc-image/
 ├── go.mod
 ├── cmd/
 │   └── test/main.go          # Test compilation
@@ -150,7 +150,7 @@ convimgcpc-go/
 
 To verify Phase 1 + Phase 2:
 ```bash
-cd /Users/ikari/src/cpc/convimgcpc-go
+cd /Users/ikari/src/cpc/go-cpc-image
 go mod tidy
 go build ./...
 go run cmd/test/main.go         # Phase 1 testing
@@ -169,8 +169,8 @@ go run pkg/test_implementation.go  # Phase 2 testing
 package main
 
 import (
-    "github.com/ikari/convimgcpc/pkg/fileio"
-    "github.com/ikari/convimgcpc/pkg/compress"
+    "github.com/ikari/go-cpc-image/pkg/fileio"
+    "github.com/ikari/go-cpc-image/pkg/compress"
 )
 
 func main() {
