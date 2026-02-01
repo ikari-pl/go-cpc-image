@@ -1,14 +1,14 @@
-# Binaries
-cpc-image
-cpc-image-gui
-convimgcpc
-convimgcpc-gui
-convimgcpc-test
-debugconv
-scr_example
-test-advanced
-test-build
-test-implementation
+# Binaries (root-level only, not cmd/ source dirs)
+/cpc-image
+/cpc-image-gui
+/convimgcpc
+/convimgcpc-gui
+/convimgcpc-test
+/debugconv
+/scr_example
+/test-advanced
+/test-build
+/test-implementation
 *.exe
 
 # Debug output
