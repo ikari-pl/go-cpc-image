@@ -67,8 +67,10 @@ func TestNewRgbColorFromInt(t *testing.T) {
 	}
 }
 
-// TestGetColor tests RGB packing (no alpha)
-func TestGetColor(t *testing.T) {
+// TestGetColor_PacksRGBWithoutAlpha verifies that GetColor packs the red,
+// green and blue channels into a single uint32 while discarding alpha —
+// the inverse of SetColorArgb's full ARGB packing.
+func TestGetColor_PacksRGBWithoutAlpha(t *testing.T) {
 	tests := []struct {
 		name     string
 		r, v, b  uint8

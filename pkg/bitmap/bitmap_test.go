@@ -309,8 +309,10 @@ func TestCopyBitsNilSource(t *testing.T) {
 	dest.CopyBits(nil) // Should not crash
 }
 
-// TestImage tests access to underlying image.RGBA
-func TestImage(t *testing.T) {
+// TestDirectBitmap_ExposesUnderlyingRGBA confirms that the Image() accessor
+// returns a live reference to the internal RGBA buffer, so callers can read
+// and manipulate pixels directly without an extra copy.
+func TestDirectBitmap_ExposesUnderlyingRGBA(t *testing.T) {
 	bmp := NewDirectBitmap(10, 10)
 	img := bmp.Image()
 

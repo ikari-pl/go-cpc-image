@@ -87,8 +87,9 @@ func TestBayerMatricesValues(t *testing.T) {
 	}
 }
 
-// TestDoDitherFull tests that dithering produces different output than input
-func TestDoDitherFull(t *testing.T) {
+// TestDoDither_ModifiesPixels verifies that applying dithering to a bitmap
+// actually changes pixel values — a gradient should not survive untouched.
+func TestDoDither_ModifiesPixels(t *testing.T) {
 	// Create a simple test bitmap
 	bmp := bitmap.NewDirectBitmap(16, 16)
 

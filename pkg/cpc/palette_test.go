@@ -62,7 +62,7 @@ func TestPaletteColor(t *testing.T) {
 	}
 }
 
-// TestPaletteColorPlus tests CPC+ 12-bit color conversion (GRB to RGB)
+// TestPaletteColorPlus tests CPC+ 12-bit color conversion (VBR to RGB)
 func TestPaletteColorPlus(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -81,17 +81,17 @@ func TestPaletteColorPlus(t *testing.T) {
 		},
 		{
 			name:     "Red CPC+",
-			grbValue: 0x0F0, // G=0, R=15, B=0
+			grbValue: 0x00F, // V=0, B=0, R=15
 			expected: 0xFF0000,
 		},
 		{
 			name:     "Green CPC+",
-			grbValue: 0xF00, // G=15, R=0, B=0
+			grbValue: 0xF00, // V=15, B=0, R=0
 			expected: 0x00FF00,
 		},
 		{
 			name:     "Blue CPC+",
-			grbValue: 0x00F, // G=0, R=0, B=15
+			grbValue: 0x0F0, // V=0, B=15, R=0
 			expected: 0x0000FF,
 		},
 		{
@@ -112,8 +112,10 @@ func TestPaletteColorPlus(t *testing.T) {
 	}
 }
 
-// TestGetColor tests RgbColor retrieval for standard and CPC+ modes
-func TestGetColor(t *testing.T) {
+// TestGetColor_StandardAndCpcPlus verifies that GetColor returns the
+// correct RGB triplet for both standard CPC palette indices (27 hardware
+// colours) and CPC+ 12-bit palette entries (4096 possible colours).
+func TestGetColor_StandardAndCpcPlus(t *testing.T) {
 	tests := []struct {
 		name     string
 		value    int
@@ -133,20 +135,20 @@ func TestGetColor(t *testing.T) {
 			expected: bitmap.NewRgbColor(0x66, 0x66, 0x66),
 		},
 		{
-			name:     "CPC+ red (GRB=0x0F0)",
-			value:    0x0F0,
+			name:     "CPC+ red (VBR=0x00F)",
+			value:    0x00F,
 			cpcPlus:  true,
 			expected: bitmap.NewRgbColor(0xFF, 0x00, 0x00),
 		},
 		{
-			name:     "CPC+ green (GRB=0xF00)",
+			name:     "CPC+ green (VBR=0xF00)",
 			value:    0xF00,
 			cpcPlus:  true,
 			expected: bitmap.NewRgbColor(0x00, 0xFF, 0x00),
 		},
 		{
-			name:     "CPC+ blue (GRB=0x00F)",
-			value:    0x00F,
+			name:     "CPC+ blue (VBR=0x0F0)",
+			value:    0x0F0,
 			cpcPlus:  true,
 			expected: bitmap.NewRgbColor(0x00, 0x00, 0xFF),
 		},
@@ -220,12 +222,12 @@ func TestGetPenColor(t *testing.T) {
 func TestGetPenColorCPCPlus(t *testing.T) {
 	bmp := bitmap.NewDirectBitmap(10, 10)
 
-	// Set up a CPC+ palette with known GRB values
+	// Set up a CPC+ palette with known VBR values
 	palette := [16]int{
 		0x000, // Black
 		0xF00, // Green
-		0x0F0, // Red
-		0x00F, // Blue
+		0x00F, // Red
+		0x0F0, // Blue
 		0xFFF, // White
 		0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
 	}
