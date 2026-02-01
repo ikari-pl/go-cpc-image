@@ -47,13 +47,13 @@ func (img *SimpleCpcImage) SetPixelCpc(x, y, pen, tx int) {
 
 // ModeXConverter handles Mode X conversion with per-line palette optimization.
 type ModeXConverter struct {
-	params       *Param
+	params       *Settings
 	colorFrequency  [4096][272]int // Color frequency table [color][line]
 	cpcPlus      bool
 }
 
 // NewModeXConverter creates a new Mode X converter with the given parameters.
-func NewModeXConverter(params *Param, cpcPlus bool) *ModeXConverter {
+func NewModeXConverter(params *Settings, cpcPlus bool) *ModeXConverter {
 	return &ModeXConverter{
 		params:  params,
 		cpcPlus: cpcPlus,

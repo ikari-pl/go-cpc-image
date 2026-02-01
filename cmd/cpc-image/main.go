@@ -238,7 +238,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	directBitmap := bitmap.NewFromImage(img)
 
 	// Set up conversion parameters
-	params := convert.NewDefaultParam()
+	params := convert.NewDefaultSettings()
 	params.VirtualMode = mode
 	params.Method = mapDitherMethod(ditherMethod)
 	params.Pct = ditherPct
@@ -468,7 +468,7 @@ func mapDitherMethod(method string) string {
 }
 
 // saveSCR saves the converted image as an SCR file
-func saveSCR(filename string, dest *convert.ImageCpc, params *convert.Param) error {
+func saveSCR(filename string, dest *convert.ImageCpc, params *convert.Settings) error {
 	if verbose {
 		fmt.Printf("Saving SCR file: %s\n", filename)
 	}
@@ -501,7 +501,7 @@ func saveSCR(filename string, dest *convert.ImageCpc, params *convert.Param) err
 }
 
 // saveASM saves the converted image as assembly source
-func saveASM(filename string, dest *convert.ImageCpc, params *convert.Param) error {
+func saveASM(filename string, dest *convert.ImageCpc, params *convert.Settings) error {
 	if verbose {
 		fmt.Printf("Saving ASM file: %s\n", filename)
 	}
@@ -510,7 +510,7 @@ func saveASM(filename string, dest *convert.ImageCpc, params *convert.Param) err
 }
 
 // saveDSK saves the converted image to a DSK file
-func saveDSK(filename string, dest *convert.ImageCpc, params *convert.Param) error {
+func saveDSK(filename string, dest *convert.ImageCpc, params *convert.Settings) error {
 	if verbose {
 		fmt.Printf("Saving DSK file: %s\n", filename)
 	}
@@ -519,7 +519,7 @@ func saveDSK(filename string, dest *convert.ImageCpc, params *convert.Param) err
 }
 
 // savePNG saves a PNG preview of the CPC image
-func savePNG(filename string, dest *convert.ImageCpc, params *convert.Param) error {
+func savePNG(filename string, dest *convert.ImageCpc, params *convert.Settings) error {
 	if verbose {
 		fmt.Printf("Saving PNG file: %s\n", filename)
 	}

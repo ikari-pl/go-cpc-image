@@ -9,13 +9,13 @@ import (
 // SplitConverter handles Split-raster mode conversion.
 // Split mode: 3 fixed colors globally + 6 variable colors per line = 9 total colors per line.
 type SplitConverter struct {
-	params       *Param
+	params       *Settings
 	colorFrequency  [4096][272]int // Color frequency table [color][line]
 	cpcPlus      bool
 }
 
 // NewSplitConverter creates a new Split-raster converter with the given parameters.
-func NewSplitConverter(params *Param, cpcPlus bool) *SplitConverter {
+func NewSplitConverter(params *Settings, cpcPlus bool) *SplitConverter {
 	return &SplitConverter{
 		params:  params,
 		cpcPlus: cpcPlus,

@@ -10,6 +10,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 
+	fynetooltip "github.com/dweymouth/fyne-tooltip"
+
 	"github.com/ikari-pl/go-cpc-image/internal/gui"
 	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 )
@@ -49,6 +51,6 @@ func main() {
 	}
 
 	// Set up the main window content and show it
-	w.SetContent(guiApp.BuildLayout())
+	w.SetContent(fynetooltip.AddWindowToolTipLayer(guiApp.BuildLayout(), w.Canvas()))
 	w.ShowAndRun()
 }

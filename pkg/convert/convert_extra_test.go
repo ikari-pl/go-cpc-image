@@ -259,7 +259,7 @@ func TestFindBestColors(t *testing.T) {
 		colorFrequency[18][y] = 50
 	}
 
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0
 
 	var palette [16]int
@@ -290,7 +290,7 @@ func TestFindBestColorsLocked(t *testing.T) {
 		colorFrequency[6][y] = 100
 	}
 
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	var palette [16]int
 	palette[0] = 3 // lock pen 0 to color 3
 	var lockState [16]int
@@ -309,7 +309,7 @@ func TestFindBestColorsLocked(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQuantizePalette(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 1
 	prm.NumCols = 10
 	prm.NumLines = 10
@@ -394,7 +394,7 @@ func TestKMeansClusterReset(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFindNearestCluster(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	clusters = []*KMeansCluster{
 		NewKMeansCluster(0, 0, 0),
 		NewKMeansCluster(255, 255, 255),
@@ -418,7 +418,7 @@ func TestFindNearestCluster(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestConvertModeX(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 5
 
 	bmpCpc := render.NewBitmapCpcWithParams(10, 10, false)
@@ -473,7 +473,7 @@ func TestConvertModeX(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestModeXConverterCoulTrouvee(t *testing.T) {
-	conv := NewModeXConverter(NewDefaultParam(), false)
+	conv := NewModeXConverter(NewDefaultSettings(), false)
 	conv.UpdateCoulTrouvee(5, 10, 42)
 	if conv.GetCoulTrouvee(5, 10) != 42 {
 		t.Error("UpdateCoulTrouvee/GetCoulTrouvee mismatch")
@@ -496,7 +496,7 @@ func TestModeXConverterCoulTrouvee(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestConvertSplit(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 6
 
 	bmpCpc := render.NewBitmapCpcWithParams(10, 10, false)
@@ -550,7 +550,7 @@ func TestConvertSplit(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSplitConverterCoulTrouvee(t *testing.T) {
-	conv := NewSplitConverter(NewDefaultParam(), false)
+	conv := NewSplitConverter(NewDefaultSettings(), false)
 	conv.UpdateCoulTrouvee(7, 3, 99)
 	if conv.GetCoulTrouvee(7, 3) != 99 {
 		t.Error("Split UpdateCoulTrouvee/GetCoulTrouvee mismatch")
@@ -566,7 +566,7 @@ func TestSplitConverterCoulTrouvee(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEGXConverterConvert(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 3
 	prm.YEgx = 0
 	prm.NumCols = 10
@@ -615,7 +615,7 @@ func TestEGXConverterConvert(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // initContrastTable initializes the contrast lookup table (normally done by Convert)
-func initContrastTable(prm *Param) {
+func initContrastTable(prm *Settings) {
 	c := float64(prm.PctContrast) / 100.0
 	for i := 0; i < 256; i++ {
 		contrastTable[i] = MinMaxByte(((float64(i)/255.0 - 0.5) * c + 0.5) * 255.0)
@@ -623,7 +623,7 @@ func initContrastTable(prm *Param) {
 }
 
 func TestPass2Mode1(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 1
 	prm.NumCols = 10
 	prm.NumLines = 10
@@ -660,7 +660,7 @@ func TestPass2Mode1(t *testing.T) {
 }
 
 func TestPass2Mode2(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 2
 	prm.NumCols = 10
 	prm.NumLines = 10
@@ -697,7 +697,7 @@ func TestPass2Mode2(t *testing.T) {
 }
 
 func TestPass2ModeX(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 5
 	prm.NumCols = 10
 	prm.NumLines = 10
@@ -748,7 +748,7 @@ func TestPass2ModeX(t *testing.T) {
 }
 
 func TestPass2ModeSplit(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 6
 	prm.NumCols = 10
 	prm.NumLines = 10
@@ -801,7 +801,7 @@ func TestPass2ModeSplit(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestConvertAscii(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 9 // ASC1 mode
 	prm.NumCols = 10
 	prm.NumLines = 10
@@ -917,7 +917,7 @@ func TestCopyTrame(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetValColor(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.CpcPlus = false
 	// Standard CPC: returns color index directly
 	if GetValColor(5, prm) != 5 {
@@ -941,7 +941,7 @@ func TestGetValColor(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestParamGetThresholds(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	r := prm.GetThresholds("R")
 	if r[0] != 85 || r[1] != 170 {
 		t.Error("R thresholds unexpected")
@@ -957,7 +957,7 @@ func TestParamGetThresholds(t *testing.T) {
 }
 
 func TestParamIsOverscan(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	if prm.IsOverscan() {
 		t.Error("default params should not be overscan")
 	}
@@ -968,7 +968,7 @@ func TestParamIsOverscan(t *testing.T) {
 }
 
 func TestParamScreenDimensions(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	if prm.GetScreenWidth() != 640 {
 		t.Errorf("width = %d, want 640", prm.GetScreenWidth())
 	}
@@ -982,7 +982,7 @@ func TestParamScreenDimensions(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetNumColorPixelCpc(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	// Old method (default): threshold-based
 	// Black (0,0,0) should map to color 0
 	idx := GetNumColorPixelCpc(prm, bitmap.NewRgbColor(0, 0, 0))
@@ -1023,7 +1023,7 @@ func TestSetLumiSat(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestConvertPass1FillsFrequency(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0
 	prm.NumCols = 10
 	prm.NumLines = 10
@@ -1055,7 +1055,7 @@ func TestConvertPass1FillsFrequency(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestConvertSmallImage(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0
 	prm.NumCols = 10
 	prm.NumLines = 10

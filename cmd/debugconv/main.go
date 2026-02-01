@@ -72,7 +72,7 @@ func main() {
 }
 
 func testMode(src *bitmap.DirectBitmap, mode int, tag string) {
-	params := convert.NewDefaultParam()
+	params := convert.NewDefaultSettings()
 	params.VirtualMode = mode
 	params.NumCols = 80
 	params.NumLines = 200

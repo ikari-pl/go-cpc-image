@@ -15,7 +15,7 @@ func main() {
 
 	// Test Mode X converter
 	fmt.Println("Testing Mode X converter...")
-	params := convert.NewDefaultParam()
+	params := convert.NewDefaultSettings()
 	_ = convert.NewModeXConverter(params, false)
 	fmt.Printf("Mode X converter created with CPC+ mode: %t\n", false)
 

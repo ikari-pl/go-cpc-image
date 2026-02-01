@@ -20,7 +20,7 @@ import (
 //   - settings.json: all conversion parameters
 //   - palette.json: the 16-entry palette array
 //   - source.png: the source image encoded as PNG
-func SaveProject(filename string, params *convert.Param, sourceImg *image.RGBA) error {
+func SaveProject(filename string, params *convert.Settings, sourceImg *image.RGBA) error {
 	f, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("create project file: %w", err)
@@ -70,14 +70,14 @@ func SaveProject(filename string, params *convert.Param, sourceImg *image.RGBA) 
 
 // LoadProject loads a project state from a .gocpcimg file.
 // Returns the conversion parameters and source image.
-func LoadProject(filename string) (*convert.Param, *image.RGBA, error) {
+func LoadProject(filename string) (*convert.Settings, *image.RGBA, error) {
 	zr, err := zip.OpenReader(filename)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open project file: %w", err)
 	}
 	defer zr.Close()
 
-	var params *convert.Param
+	var params *convert.Settings
 	var sourceImg *image.RGBA
 
 	for _, f := range zr.File {
@@ -93,7 +93,7 @@ func LoadProject(filename string) (*convert.Param, *image.RGBA, error) {
 				rc.Close()
 				return nil, nil, fmt.Errorf("read settings.json: %w", err)
 			}
-			params = &convert.Param{}
+			params = &convert.Settings{}
 			if err := json.Unmarshal(data, params); err != nil {
 				rc.Close()
 				return nil, nil, fmt.Errorf("unmarshal settings.json: %w", err)

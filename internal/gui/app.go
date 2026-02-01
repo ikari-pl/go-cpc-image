@@ -32,7 +32,7 @@ type Application struct {
 	window fyne.Window
 
 	// Conversion state — only accessed by the conversion worker goroutine
-	params    *convert.Param
+	params    *convert.Settings
 	sourceImg *bitmap.DirectBitmap
 	cpcImage  *convert.ImageCpc
 
@@ -88,7 +88,7 @@ func NewApplication(app fyne.App, window fyne.Window) (*Application, error) {
 	guiApp := &Application{
 		app:          app,
 		window:       window,
-		params:       convert.NewDefaultParam(),
+		params:       convert.NewDefaultSettings(),
 		conversionCh: make(chan convRequest, 1),
 		statusBar:    widget.NewLabel("Ready"),
 	}
@@ -566,7 +566,7 @@ func (app *Application) renderCpcToRGBA() *image.RGBA {
 }
 
 // GetParams returns the current conversion parameters.
-func (app *Application) GetParams() *convert.Param {
+func (app *Application) GetParams() *convert.Settings {
 	return app.params
 }
 

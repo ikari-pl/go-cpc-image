@@ -182,7 +182,7 @@ func TestConvertPipeline_SolidColorPreservedThroughQuantization(t *testing.T) {
 	// Use CPC color 13 (White = 0x66,0x66,0x66) as a distinctive solid input
 	testColor := cpc.CpcRgbPalette[13] // R=0x66, V=0x66, B=0x66
 
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0 // Mode 0
 	prm.NumCols = 80
 	prm.NumLines = 200
@@ -254,7 +254,7 @@ func TestConvertPipeline_SolidColorPreservedThroughQuantization(t *testing.T) {
 // TestFullPipelineStripes creates vertical stripes of different CPC colors
 // and verifies they survive the pipeline.
 func TestFullPipelineStripes(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0
 	prm.NumCols = 80
 	prm.NumLines = 200
@@ -341,7 +341,7 @@ func TestTabOctetModeRoundtrip(t *testing.T) {
 // TestConvertStdMode0 tests ConvertStd in isolation with a controlled palette
 // and source image.
 func TestConvertStdMode0(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0
 	prm.NumCols = 80
 	prm.NumLines = 200
@@ -503,7 +503,7 @@ func TestEncodeToCpcMode0AllPens(t *testing.T) {
 // TestPass1DoesNotCorruptColors verifies Pass1 with 0% dithering doesn't
 // modify source pixels that are already valid CPC colors.
 func TestPass1DoesNotCorruptColors(t *testing.T) {
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0
 	prm.NumCols = 80
 	prm.NumLines = 200
@@ -545,7 +545,7 @@ func TestPipelineDiagnostic(t *testing.T) {
 		t.Skip("skipping diagnostic in short mode")
 	}
 
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0
 	prm.NumCols = 80
 	prm.NumLines = 200
@@ -809,7 +809,7 @@ func TestCpcPlusFullPipelineSolidColor(t *testing.T) {
 	testColorVal := 0x84A
 	testColor := cpc.GetColorFromCpcPlus(testColorVal)
 
-	prm := NewDefaultParam()
+	prm := NewDefaultSettings()
 	prm.VirtualMode = 0
 	prm.NumCols = 80
 	prm.NumLines = 200

@@ -49,7 +49,7 @@ func MinMaxByte(value float64) byte {
 // Convert performs the complete conversion from source image to CPC format.
 // This is the main entry point replicating the C# Convert function.
 // Returns the number of unique colors found in the source image.
-func Convert(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Param, noInfo bool) int {
+func Convert(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, noInfo bool) int {
 	// Clear frequency table
 	for i := range colorFrequency {
 		for j := range colorFrequency[i] {

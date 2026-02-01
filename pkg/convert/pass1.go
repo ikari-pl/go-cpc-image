@@ -89,7 +89,7 @@ func SetLumiSat(lumi, satur float32, r, v, b *float32) {
 
 // GetNumColorPixelCpc returns the CPC color index (0-26) closest to the given pixel.
 // This implements both old method (thresholds) and new method (distance calculation).
-func GetNumColorPixelCpc(prm *Param, p bitmap.RgbColor) int {
+func GetNumColorPixelCpc(prm *Settings, p bitmap.RgbColor) int {
 	colorIndex := 0
 
 	if !prm.NewMethod {
@@ -142,7 +142,7 @@ func GetNumColorPixelCpc(prm *Param, p bitmap.RgbColor) int {
 // GetPixel retrieves and processes a pixel with all transformations applied.
 // This includes averaging, bit-depth reduction, color channel adjustments,
 // contrast, luminosity/saturation, and optional dithering.
-func GetPixel(source *bitmap.DirectBitmap, xPix, yPix, Tx int, prm *Param, pct int) bitmap.RgbColor {
+func GetPixel(source *bitmap.DirectBitmap, xPix, yPix, Tx int, prm *Settings, pct int) bitmap.RgbColor {
 	var p bitmap.RgbColor
 
 	// Smoothing (averaging) if enabled
@@ -255,7 +255,7 @@ func (w *bitmapWrapper) SetPixel(x, y int, color bitmap.RgbColor) {
 // - Reduces palette to CPC colors
 // - Fills frequency table (colorFrequency)
 // - Applies dithering if requested
-func ConvertPass1(source *bitmap.DirectBitmap, prm *Param) {
+func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings) {
 	// Clear frequency table
 	for i := range colorFrequency {
 		for j := range colorFrequency[i] {

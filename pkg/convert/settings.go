@@ -14,7 +14,7 @@ const (
 
 // Param contains all conversion parameters.
 // This structure maintains compatibility with the C# Param class.
-type Param struct {
+type Settings struct {
 	// Size and positioning
 	SMode        SizeMode `json:"sMode"`
 	SizeX        int      `json:"sizeX"`
@@ -112,9 +112,9 @@ type Param struct {
 	CropY2         float64 `json:"cropY2,omitempty"`
 }
 
-// NewDefaultParam creates a Param with default values matching the C# version.
-func NewDefaultParam() *Param {
-	p := &Param{
+// NewDefaultSettings creates a Param with default values matching the C# version.
+func NewDefaultSettings() *Settings {
+	p := &Settings{
 		SMode:       Fit,
 		Method:     "Floyd-Steinberg (2x2)",
 		DiffErr:     true, // Floyd-Steinberg uses error diffusion (matching C# auto-check)
@@ -157,7 +157,7 @@ func NewDefaultParam() *Param {
 }
 
 // GetThreshold returns the RGB quantization thresholds for the given component.
-func (p *Param) GetThresholds(component string) [4]int {
+func (p *Settings) GetThresholds(component string) [4]int {
 	switch component {
 	case "R":
 		return [4]int{p.CstR1, p.CstR2, p.CstR3, p.CstR4}
@@ -171,16 +171,16 @@ func (p *Param) GetThresholds(component string) [4]int {
 }
 
 // IsOverscan returns true if the current configuration uses overscan mode.
-func (p *Param) IsOverscan() bool {
+func (p *Settings) IsOverscan() bool {
 	return p.NumCols > 80 || p.NumLines > 200
 }
 
 // GetScreenWidth returns the screen width in pixels.
-func (p *Param) GetScreenWidth() int {
+func (p *Settings) GetScreenWidth() int {
 	return p.NumCols * 8
 }
 
 // GetScreenHeight returns the screen height in pixels.
-func (p *Param) GetScreenHeight() int {
+func (p *Settings) GetScreenHeight() int {
 	return p.NumLines * 2
 }

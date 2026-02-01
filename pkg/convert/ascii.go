@@ -49,12 +49,12 @@ func (t *PatternM1) IsSame(other *PatternM1, maxPens int) bool {
 
 // AsciiConverter handles ASCII art conversion modes (ASC0, ASC1, ASC2).
 type AsciiConverter struct {
-	params  *Param
+	params  *Settings
 	cpcPlus bool
 }
 
 // NewAsciiConverter creates a new ASCII art converter.
-func NewAsciiConverter(params *Param, cpcPlus bool) *AsciiConverter {
+func NewAsciiConverter(params *Settings, cpcPlus bool) *AsciiConverter {
 	return &AsciiConverter{
 		params:  params,
 		cpcPlus: cpcPlus,

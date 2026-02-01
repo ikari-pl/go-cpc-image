@@ -26,7 +26,7 @@ func max(a, b int) int {
 // GetValColor returns a value used for palette sorting.
 // For CPC+ mode, returns weighted sum of RGB components.
 // For standard CPC, returns the color index directly.
-func GetValColor(c int, prm *Param) int {
+func GetValColor(c int, prm *Settings) int {
 	if prm.CpcPlus {
 		v := c >> 8
 		r := (c >> 4) & 0x0F
@@ -41,7 +41,7 @@ func GetValColor(c int, prm *Param) int {
 // maxPen: maximum number of palette entries to fill
 // lockState: array indicating which palette entries are locked
 // prm: conversion parameters
-func FindBestColors(maxPen int, lockState [16]int, prm *Param, palette *[16]int) {
+func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]int) {
 	// Mark unlocked entries as unassigned (matching C# behavior: Cpc.Palette[i] = 0xFFFF)
 	for i := 0; i < 16; i++ {
 		if prm.LockState[i] == 0 && lockState[i] == 0 {
@@ -238,7 +238,7 @@ var clusters []*KMeansCluster
 
 // FindNearestCluster finds the best matching k-means level for a color
 // and accumulates the color values for cluster update
-func FindNearestCluster(prm *Param, color bitmap.RgbColor) *KMeansCluster {
+func FindNearestCluster(prm *Settings, color bitmap.RgbColor) *KMeansCluster {
 	minDist := 0x7FFFFFFF
 	ret := 0
 	r := color.R
@@ -288,7 +288,7 @@ func FindNearestCluster(prm *Param, color bitmap.RgbColor) *KMeansCluster {
 
 // QuantizePalette applies k-means color quantization to reduce the image palette
 // This preprocesses the image before main CPC conversion
-func QuantizePalette(img *bitmap.DirectBitmap, prm *Param) {
+func QuantizePalette(img *bitmap.DirectBitmap, prm *Settings) {
 	// Initialize k-means levels with grayscale distribution
 	clusters = make([]*KMeansCluster, prm.KMeansColor)
 	for n := 0; n < prm.KMeansColor; n++ {

@@ -36,7 +36,7 @@ func main() {
 		header.GetFilename(), header.Address, header.Length)
 
 	// Test parameters
-	params := convert.NewDefaultParam()
+	params := convert.NewDefaultSettings()
 	fmt.Printf("Default params: Mode=%d, Method=%s, Pct=%d%%\n",
 		params.VirtualMode, params.Method, params.Pct)
 

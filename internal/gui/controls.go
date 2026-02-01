@@ -11,6 +11,8 @@ import (
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/widget"
 
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
+
 	"github.com/ikari-pl/go-cpc-image/pkg/convert"
 )
 
@@ -50,15 +52,15 @@ type ControlsWidget struct {
 	blueLabel      *widget.Label
 
 	// Options checkboxes
-	smoothingCheck      *widget.Check
-	trueColorDitherCheck *widget.Check
-	newMethodCheck      *widget.Check
-	newReducCheck       *widget.Check
-	reductPal1Check     *widget.Check
-	reductPal2Check     *widget.Check
-	reductPal3Check     *widget.Check
-	reductPal4Check     *widget.Check
-	kmeansCheck         *widget.Check
+	smoothingCheck       *ttwidget.Check
+	trueColorDitherCheck *ttwidget.Check
+	newMethodCheck       *ttwidget.Check
+	newReducCheck        *ttwidget.Check
+	reductPal1Check      *ttwidget.Check
+	reductPal2Check      *ttwidget.Check
+	reductPal3Check      *ttwidget.Check
+	reductPal4Check      *ttwidget.Check
+	kmeansCheck          *ttwidget.Check
 
 	// Bit depth radio
 	bitsRGBRadio *widget.RadioGroup
@@ -203,26 +205,38 @@ func (cw *ControlsWidget) setupColorControls() {
 
 // setupOptionsControls creates the options checkboxes and bit depth radio.
 func (cw *ControlsWidget) setupOptionsControls() {
-	makeCheck := func(label string, param *bool) *widget.Check {
-		c := widget.NewCheck(label, func(checked bool) {
+	makeCheck := func(label string, param *bool, tip string) *ttwidget.Check {
+		c := ttwidget.NewCheck(label, func(checked bool) {
 			*param = checked
 			if cw.autoConvert != nil && cw.autoConvert.Checked {
 				cw.app.TriggerConversion()
 			}
 		})
 		c.SetChecked(*param)
+		if tip != "" {
+			c.SetToolTip(tip)
+		}
 		return c
 	}
 
-	cw.smoothingCheck = makeCheck("Smoothing", &cw.app.params.Smoothing)
-	cw.trueColorDitherCheck = makeCheck("True color dither", &cw.app.params.TrueColorDither)
-	cw.newMethodCheck = makeCheck("New method", &cw.app.params.NewMethod)
-	cw.newReducCheck = makeCheck("New reduction", &cw.app.params.NewReduc)
-	cw.reductPal1Check = makeCheck("Reduct Pal 1", &cw.app.params.ReductPal1)
-	cw.reductPal2Check = makeCheck("Reduct Pal 2", &cw.app.params.ReductPal2)
-	cw.reductPal3Check = makeCheck("Reduct Pal 3", &cw.app.params.ReductPal3)
-	cw.reductPal4Check = makeCheck("Reduct Pal 4", &cw.app.params.ReductPal4)
-	cw.kmeansCheck = makeCheck("K-means", &cw.app.params.AutoRecalc)
+	cw.smoothingCheck = makeCheck("Smoothing", &cw.app.params.Smoothing,
+		"Box-blur each CPC pixel block before colour matching, reducing aliasing when downsampling to CPC resolution")
+	cw.trueColorDitherCheck = makeCheck("True color dither", &cw.app.params.TrueColorDither,
+		"Average pairs of scanlines and assign two different palette colours in a checkerboard pattern to simulate intermediate colours")
+	cw.newMethodCheck = makeCheck("New method", &cw.app.params.NewMethod,
+		"Use weighted Euclidean distance to find the nearest CPC colour instead of the old threshold-based channel quantisation")
+	cw.newReducCheck = makeCheck("New reduction", &cw.app.params.NewReduc,
+		"Alternate between most-frequent and most-contrasting colours when building the palette, producing a more diverse result")
+	cw.reductPal1Check = makeCheck("Reduct Pal 1", &cw.app.params.ReductPal1,
+		"OR each RGB byte with 0x11 — pushes dark values brighter, reducing the darkest tonal distinctions")
+	cw.reductPal2Check = makeCheck("Reduct Pal 2", &cw.app.params.ReductPal2,
+		"AND each RGB byte with 0xEE — zeroes odd intensity levels, snapping colours to even values")
+	cw.reductPal3Check = makeCheck("Reduct Pal 3", &cw.app.params.ReductPal3,
+		"OR each RGB byte with 0x22 — raises the floor of mid-tones, further reducing tonal range")
+	cw.reductPal4Check = makeCheck("Reduct Pal 4", &cw.app.params.ReductPal4,
+		"AND each RGB byte with 0xDD — zeroes another set of intensity levels for coarser quantisation")
+	cw.kmeansCheck = makeCheck("K-means", &cw.app.params.AutoRecalc,
+		"Pre-process with k-means clustering: group pixels into N colour clusters and replace each with its centroid before CPC conversion")
 
 	// Bit depth radio
 	cw.bitsRGBRadio = widget.NewRadioGroup([]string{"24 bit", "12 bit", "9 bit", "6 bit"}, func(s string) {
@@ -364,7 +378,7 @@ func (cw *ControlsWidget) setupConversionControls() {
 	cw.autoConvert.SetChecked(true) // Auto-convert enabled by default
 
 	cw.resetBtn = widget.NewButton("Reset All", func() {
-		defaults := convert.NewDefaultParam()
+		defaults := convert.NewDefaultSettings()
 		p := cw.app.params
 		p.PctLumi = defaults.PctLumi
 		p.PctSat = defaults.PctSat

@@ -9,7 +9,7 @@ import (
 
 // Converter interface defines the contract for mode-specific converters
 type Converter interface {
-	Convert(source *bitmap.DirectBitmap, prm *Param, dest *ImageCpc, maxPen int, colorTable [16][272]bitmap.RgbColor)
+	Convert(source *bitmap.DirectBitmap, prm *Settings, dest *ImageCpc, maxPen int, colorTable [16][272]bitmap.RgbColor)
 }
 
 // StandardConverter implements conversion for standard CPC modes (0, 1, 2) and EGX modes (3, 4)
@@ -22,7 +22,7 @@ func NewStandardConverter() *StandardConverter {
 
 // Convert implements standard CPC conversion for modes 0, 1, 2, and EGX modes 3, 4.
 // This replicates the C# ConvertStd function exactly.
-func (sc *StandardConverter) Convert(source *bitmap.DirectBitmap, prm *Param, dest *ImageCpc, maxPen int, colorTable [16][272]bitmap.RgbColor) {
+func (sc *StandardConverter) Convert(source *bitmap.DirectBitmap, prm *Settings, dest *ImageCpc, maxPen int, colorTable [16][272]bitmap.RgbColor) {
 	// Calculate screen dimensions
 	width := prm.GetScreenWidth()
 	height := prm.GetScreenHeight()
@@ -73,7 +73,7 @@ func (sc *StandardConverter) Convert(source *bitmap.DirectBitmap, prm *Param, de
 
 // ConvertStd is the main function called by Pass2 for standard mode conversion.
 // It creates a StandardConverter and calls its Convert method.
-func ConvertStd(source *bitmap.DirectBitmap, prm *Param, dest *ImageCpc, maxPen int, colorTable [16][272]bitmap.RgbColor) {
+func ConvertStd(source *bitmap.DirectBitmap, prm *Settings, dest *ImageCpc, maxPen int, colorTable [16][272]bitmap.RgbColor) {
 	converter := NewStandardConverter()
 	converter.Convert(source, prm, dest, maxPen, colorTable)
 }
@@ -90,7 +90,7 @@ func NewEGXConverter() *EGXConverter {
 // EGX modes alternate between two different modes on even/odd scanlines.
 // Mode 3 (EGX1): alternates between mode 0 and mode 1
 // Mode 4 (EGX2): alternates between mode 1 and mode 2
-func (ec *EGXConverter) Convert(source *bitmap.DirectBitmap, prm *Param, dest *ImageCpc, maxPen int, colorTable [16][272]bitmap.RgbColor, yEgx int) {
+func (ec *EGXConverter) Convert(source *bitmap.DirectBitmap, prm *Settings, dest *ImageCpc, maxPen int, colorTable [16][272]bitmap.RgbColor, yEgx int) {
 	width := prm.GetScreenWidth()
 	height := prm.GetScreenHeight()
 
@@ -136,7 +136,7 @@ func (ec *EGXConverter) Convert(source *bitmap.DirectBitmap, prm *Param, dest *I
 
 // Pass2 performs the second conversion pass: reduces image to final CPC format.
 // This is called by the main Convert function.
-func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Param, splitCount *int) {
+func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, splitCount *int) {
 	var colorTable [16][272]bitmap.RgbColor
 	var MemoLockState [16]int
 

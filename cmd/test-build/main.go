@@ -11,7 +11,7 @@ func main() {
 	fmt.Println("Testing conversion pipeline compilation...")
 
 	// Test creating default parameters
-	prm := convert.NewDefaultParam()
+	prm := convert.NewDefaultSettings()
 	fmt.Printf("Default CPC mode: %d\n", prm.VirtualMode)
 
 	// Test creating a bitmap
