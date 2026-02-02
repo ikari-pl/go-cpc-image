@@ -139,7 +139,7 @@ func (tw *ToolbarWidget) buildLayoutWithDemo(demoBtn, loadAnimBtn, saveProjectBt
 		widget.NewButton("Auto", func() { go tw.app.AutoOptimize() }),
 		widget.NewButton("Deep", func() { go tw.app.DeepOptimize() }),
 		layout.NewSpacer(),
-		widget.NewLabel("Go CPC image! v1.0.0"),
+		widget.NewLabel("Go CPC image! v1.2.0"),
 	)
 }
 
@@ -154,7 +154,7 @@ func (tw *ToolbarWidget) buildLayout() {
 		widget.NewButton("Auto", func() { go tw.app.AutoOptimize() }),
 		widget.NewButton("Deep", func() { go tw.app.DeepOptimize() }),
 		layout.NewSpacer(),
-		widget.NewLabel("Go CPC image! v1.0.0"),
+		widget.NewLabel("Go CPC image! v1.2.0"),
 	)
 }
 
