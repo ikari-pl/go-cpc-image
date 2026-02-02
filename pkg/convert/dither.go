@@ -209,7 +209,7 @@ var DitherMatrices = map[string][][]float64{
 	"Gradient (4x4)":          test9,
 }
 
-// Current dithering matrix, set by SetMatDither
+// matDither kept for backward compatibility with tests.
 var matDither [][]float64
 
 // minMaxByte clamps a float64 value to the valid byte range [0, 255]
@@ -311,6 +311,78 @@ func DoDitherFull(source Bitmap, xPix, yPix, tx int, p, chosen bitmap.RgbColor, 
 
 		// Apply the matrix value as an additive bias before quantization
 		ditherValue := matDither[ym][xm]
+		p.R = minMaxByte(float64(p.R) + ditherValue)
+		p.V = minMaxByte(float64(p.V) + ditherValue)
+		p.B = minMaxByte(float64(p.B) + ditherValue)
+	}
+	return p
+}
+
+// setMatDitherState sets up the dithering matrix on the ConversionState.
+func setMatDitherState(prm DitherParam, state *ConversionState) int {
+	var pct int
+	if prm.CpcPlus {
+		pct = prm.Pct << 3
+	} else {
+		pct = prm.Pct << 1
+	}
+
+	matrix, exists := DitherMatrices[prm.Method]
+	if pct > 0 && exists {
+		height := len(matrix)
+		width := len(matrix[0])
+		state.MatDither = make([][]float64, height)
+		for i := range state.MatDither {
+			state.MatDither[i] = make([]float64, width)
+			copy(state.MatDither[i], matrix[i])
+		}
+		var sum float64
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				sum += state.MatDither[y][x]
+			}
+		}
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				state.MatDither[y][x] = (state.MatDither[y][x] * float64(pct)) / sum
+			}
+		}
+	} else {
+		pct = 0
+		state.MatDither = nil
+	}
+	return pct
+}
+
+// doDitherFullState applies dithering using the state's matrix.
+func doDitherFullState(source Bitmap, xPix, yPix, tx int, p, chosen bitmap.RgbColor, diffErr bool, state *ConversionState) bitmap.RgbColor {
+	md := state.MatDither
+	if md == nil {
+		return p
+	}
+
+	if diffErr {
+		matHeight := len(md)
+		matWidth := len(md[0])
+		for y := 0; y < matHeight; y++ {
+			for x := 0; x < matWidth; x++ {
+				pixelX := xPix + tx*x
+				pixelY := yPix + (y << 1)
+				if pixelX < source.Width() && pixelY < source.Height() {
+					pix := source.GetPixelColor(pixelX, pixelY)
+					pix.R = minMaxByte(float64(pix.R) + float64(int(p.R)-int(chosen.R))*md[y][x]/256.0)
+					pix.V = minMaxByte(float64(pix.V) + float64(int(p.V)-int(chosen.V))*md[y][x]/256.0)
+					pix.B = minMaxByte(float64(pix.B) + float64(int(p.B)-int(chosen.B))*md[y][x]/256.0)
+					source.SetPixel(pixelX, pixelY, pix)
+				}
+			}
+		}
+	} else {
+		matHeight := len(md)
+		matWidth := len(md[0])
+		xm := (xPix / tx) % matWidth
+		ym := (yPix >> 1) % matHeight
+		ditherValue := md[ym][xm]
 		p.R = minMaxByte(float64(p.R) + ditherValue)
 		p.V = minMaxByte(float64(p.V) + ditherValue)
 		p.B = minMaxByte(float64(p.B) + ditherValue)

@@ -521,7 +521,13 @@ func TestPass1DoesNotCorruptColors(t *testing.T) {
 		}
 	}
 
-	ConvertPass1(source, prm)
+	state := &ConversionState{}
+	// Build contrast lookup table (normally done by Convert)
+	c := float64(prm.PctContrast) / 100.0
+	for i := 0; i < 256; i++ {
+		state.ContrastTable[i] = MinMaxByte(((float64(i)/255.0-0.5)*c+0.5)*255.0)
+	}
+	ConvertPass1(source, prm, state)
 
 	// Verify source pixels are still Bright Red (or the nearest CPC-quantized value)
 	// Pass1 quantizes to CPC color space, so the exact RGB values should be maintained

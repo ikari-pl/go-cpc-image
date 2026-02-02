@@ -219,17 +219,18 @@ func TestCalculateDistance(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetFrequencyTable(t *testing.T) {
+	state := &ConversionState{}
 	// Clear
-	for i := range colorFrequency {
-		for j := range colorFrequency[i] {
-			colorFrequency[i][j] = 0
+	for i := range state.ColorFrequency {
+		for j := range state.ColorFrequency[i] {
+			state.ColorFrequency[i][j] = 0
 		}
 	}
-	colorFrequency[5][10] = 3
-	colorFrequency[5][20] = 7
-	colorFrequency[12][0] = 1
+	state.ColorFrequency[5][10] = 3
+	state.ColorFrequency[5][20] = 7
+	state.ColorFrequency[12][0] = 1
 
-	ft := GetFrequencyTable(27)
+	ft := GetFrequencyTable(27, state)
 	if ft[5] != 10 {
 		t.Errorf("freq[5] = %d, want 10", ft[5])
 	}
@@ -246,17 +247,18 @@ func TestGetFrequencyTable(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFindBestColors(t *testing.T) {
+	state := &ConversionState{}
 	// Clear frequency table
-	for i := range colorFrequency {
-		for j := range colorFrequency[i] {
-			colorFrequency[i][j] = 0
+	for i := range state.ColorFrequency {
+		for j := range state.ColorFrequency[i] {
+			state.ColorFrequency[i][j] = 0
 		}
 	}
 
 	// Set color 6 as dominant, color 18 as second
 	for y := 0; y < 200; y++ {
-		colorFrequency[6][y] = 100
-		colorFrequency[18][y] = 50
+		state.ColorFrequency[6][y] = 100
+		state.ColorFrequency[18][y] = 50
 	}
 
 	prm := NewDefaultSettings()
@@ -268,7 +270,7 @@ func TestFindBestColors(t *testing.T) {
 	}
 	var lockState [16]int
 
-	FindBestColors(16, lockState, prm, &palette)
+	FindBestColors(16, lockState, prm, &palette, state)
 
 	// Color 6 should appear first (highest frequency)
 	if palette[0] != 6 {
@@ -281,13 +283,14 @@ func TestFindBestColors(t *testing.T) {
 }
 
 func TestFindBestColorsLocked(t *testing.T) {
-	for i := range colorFrequency {
-		for j := range colorFrequency[i] {
-			colorFrequency[i][j] = 0
+	state := &ConversionState{}
+	for i := range state.ColorFrequency {
+		for j := range state.ColorFrequency[i] {
+			state.ColorFrequency[i][j] = 0
 		}
 	}
 	for y := 0; y < 200; y++ {
-		colorFrequency[6][y] = 100
+		state.ColorFrequency[6][y] = 100
 	}
 
 	prm := NewDefaultSettings()
@@ -296,7 +299,7 @@ func TestFindBestColorsLocked(t *testing.T) {
 	var lockState [16]int
 	lockState[0] = 1
 
-	FindBestColors(16, lockState, prm, &palette)
+	FindBestColors(16, lockState, prm, &palette, state)
 
 	// Pen 0 should remain locked to color 3
 	if palette[0] != 3 {
@@ -395,12 +398,12 @@ func TestKMeansClusterReset(t *testing.T) {
 
 func TestFindNearestCluster(t *testing.T) {
 	prm := NewDefaultSettings()
-	clusters = []*KMeansCluster{
+	clusters := []*KMeansCluster{
 		NewKMeansCluster(0, 0, 0),
 		NewKMeansCluster(255, 255, 255),
 	}
 	color := bitmap.NewRgbColor(200, 200, 200)
-	result := FindNearestCluster(prm, color)
+	result := FindNearestCluster(prm, color, clusters)
 
 	// Should be closest to white cluster
 	if result.CentroidColor.R != 255 {
@@ -615,10 +618,10 @@ func TestEGXConverterConvert(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // initContrastTable initializes the contrast lookup table (normally done by Convert)
-func initContrastTable(prm *Settings) {
+func initContrastTable(prm *Settings, state *ConversionState) {
 	c := float64(prm.PctContrast) / 100.0
 	for i := 0; i < 256; i++ {
-		contrastTable[i] = MinMaxByte(((float64(i)/255.0 - 0.5) * c + 0.5) * 255.0)
+		state.ContrastTable[i] = MinMaxByte(((float64(i)/255.0 - 0.5) * c + 0.5) * 255.0)
 	}
 }
 
@@ -640,8 +643,9 @@ func TestPass2Mode1(t *testing.T) {
 		}
 	}
 
-	initContrastTable(prm)
-	ConvertPass1(source, prm)
+	state := &ConversionState{}
+	initContrastTable(prm, state)
+	ConvertPass1(source, prm, state)
 
 	bmpCpc := render.NewBitmapCpcWithParams(prm.NumCols, prm.NumLines, false)
 	bmpCpc.VirtualMode = prm.VirtualMode
@@ -651,7 +655,7 @@ func TestPass2Mode1(t *testing.T) {
 	}
 
 	var splitCount int
-	Pass2(source, dest, prm, &splitCount)
+	Pass2(source, dest, prm, &splitCount, state)
 
 	got := dest.DisplayBmp.GetPixelColor(0, 0)
 	if got.B < 100 {
@@ -677,8 +681,9 @@ func TestPass2Mode2(t *testing.T) {
 		}
 	}
 
-	initContrastTable(prm)
-	ConvertPass1(source, prm)
+	state := &ConversionState{}
+	initContrastTable(prm, state)
+	ConvertPass1(source, prm, state)
 
 	bmpCpc := render.NewBitmapCpcWithParams(prm.NumCols, prm.NumLines, false)
 	bmpCpc.VirtualMode = prm.VirtualMode
@@ -688,7 +693,7 @@ func TestPass2Mode2(t *testing.T) {
 	}
 
 	var splitCount int
-	Pass2(source, dest, prm, &splitCount)
+	Pass2(source, dest, prm, &splitCount, state)
 
 	got := dest.DisplayBmp.GetPixelColor(0, 0)
 	if got.R == 0 && got.V == 0 && got.B == 0 {
@@ -714,8 +719,9 @@ func TestPass2ModeX(t *testing.T) {
 		}
 	}
 
-	initContrastTable(prm)
-	ConvertPass1(source, prm)
+	state := &ConversionState{}
+	initContrastTable(prm, state)
+	ConvertPass1(source, prm, state)
 
 	bmpCpc := render.NewBitmapCpcWithParams(prm.NumCols, prm.NumLines, false)
 	bmpCpc.VirtualMode = prm.VirtualMode
@@ -725,7 +731,7 @@ func TestPass2ModeX(t *testing.T) {
 	}
 
 	var splitCount int
-	Pass2(source, dest, prm, &splitCount)
+	Pass2(source, dest, prm, &splitCount, state)
 
 	// Verify pipeline ran without panic and wrote something
 	// Mode X palette optimization may place colors in any order;
@@ -765,8 +771,9 @@ func TestPass2ModeSplit(t *testing.T) {
 		}
 	}
 
-	initContrastTable(prm)
-	ConvertPass1(source, prm)
+	state := &ConversionState{}
+	initContrastTable(prm, state)
+	ConvertPass1(source, prm, state)
 
 	bmpCpc := render.NewBitmapCpcWithParams(prm.NumCols, prm.NumLines, false)
 	bmpCpc.VirtualMode = prm.VirtualMode
@@ -776,7 +783,7 @@ func TestPass2ModeSplit(t *testing.T) {
 	}
 
 	var splitCount int
-	Pass2(source, dest, prm, &splitCount)
+	Pass2(source, dest, prm, &splitCount, state)
 
 	// Verify pipeline ran without panic and the dominant color appears in SplitModeColors
 	found := false
@@ -1040,11 +1047,12 @@ func TestConvertPass1FillsFrequency(t *testing.T) {
 		}
 	}
 
-	initContrastTable(prm)
-	ConvertPass1(source, prm)
+	state := &ConversionState{}
+	initContrastTable(prm, state)
+	ConvertPass1(source, prm, state)
 
 	// Color 6 should have nonzero frequency
-	ft := GetFrequencyTable(27)
+	ft := GetFrequencyTable(27, state)
 	if ft[6] == 0 {
 		t.Error("ConvertPass1 did not record frequency for color 6")
 	}

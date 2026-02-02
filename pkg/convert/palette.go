@@ -41,7 +41,8 @@ func GetValColor(c int, prm *Settings) int {
 // maxPen: maximum number of palette entries to fill
 // lockState: array indicating which palette entries are locked
 // prm: conversion parameters
-func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]int) {
+// state: conversion state containing frequency table
+func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]int, state *ConversionState) {
 	// Mark unlocked entries as unassigned (matching C# behavior: Cpc.Palette[i] = 0xFFFF)
 	for i := 0; i < 16; i++ {
 		if prm.LockState[i] == 0 && lockState[i] == 0 {
@@ -60,7 +61,7 @@ func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]i
 		if lockState[x] > 0 {
 			for y := 0; y < 272; y++ {
 				if palette[x] < 4096 {
-					colorFrequency[palette[x]][y] = 0
+					state.ColorFrequency[palette[x]][y] = 0
 				}
 			}
 		}
@@ -77,7 +78,7 @@ func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]i
 			for i := 0; i < FindMax; i++ {
 				freq := 0
 				for y := 0; y < 272; y++ {
-					freq += colorFrequency[i][y]
+					freq += state.ColorFrequency[i][y]
 				}
 
 				if maxFreq < freq {
@@ -89,7 +90,7 @@ func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]i
 			// Clear this color from frequency table
 			for y := 0; y < 272; y++ {
 				if palette[usedIdx] < 0xFFFF {
-					colorFrequency[palette[usedIdx]][y] = 0
+					state.ColorFrequency[palette[usedIdx]][y] = 0
 				}
 			}
 
@@ -113,7 +114,7 @@ func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]i
 					for i := 0; i < FindMax; i++ {
 						freq := 0
 						for y := 0; y < 272; y++ {
-							freq += colorFrequency[i][y]
+							freq += state.ColorFrequency[i][y]
 						}
 
 						if maxFreq < freq {
@@ -133,7 +134,7 @@ func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]i
 						for i := 0; i < FindMax; i++ {
 							freq := 0
 							for y := 0; y < 272; y++ {
-								freq += colorFrequency[i][y]
+								freq += state.ColorFrequency[i][y]
 							}
 
 							if freq > maxFreq>>uint(pass) {
@@ -161,7 +162,7 @@ func FindBestColors(maxPen int, lockState [16]int, prm *Settings, palette *[16]i
 			// Clear selected color from frequency table
 			for y := 0; y < 272; y++ {
 				if palette[x] < 0xFFFF {
-					colorFrequency[palette[x]][y] = 0
+					state.ColorFrequency[palette[x]][y] = 0
 				}
 			}
 
@@ -233,12 +234,9 @@ func (n *KMeansCluster) UpdateCentroid() {
 	}
 }
 
-// K-means levels for palette quantization
-var clusters []*KMeansCluster
-
 // FindNearestCluster finds the best matching k-means level for a color
 // and accumulates the color values for cluster update
-func FindNearestCluster(prm *Settings, color bitmap.RgbColor) *KMeansCluster {
+func FindNearestCluster(prm *Settings, color bitmap.RgbColor, clusters []*KMeansCluster) *KMeansCluster {
 	minDist := 0x7FFFFFFF
 	ret := 0
 	r := color.R
@@ -290,7 +288,7 @@ func FindNearestCluster(prm *Settings, color bitmap.RgbColor) *KMeansCluster {
 // This preprocesses the image before main CPC conversion
 func QuantizePalette(img *bitmap.DirectBitmap, prm *Settings) {
 	// Initialize k-means levels with grayscale distribution
-	clusters = make([]*KMeansCluster, prm.KMeansColor)
+	clusters := make([]*KMeansCluster, prm.KMeansColor)
 	for n := 0; n < prm.KMeansColor; n++ {
 		gray := byte(255 * n / (prm.KMeansColor - 1))
 		clusters[n] = NewKMeansCluster(gray, gray, gray)
@@ -316,7 +314,7 @@ func QuantizePalette(img *bitmap.DirectBitmap, prm *Settings) {
 			Tx := cpc.PixelWidth(prm.VirtualMode, y, 0)
 			for x := 0; x < width; x += Tx {
 				color := img.GetPixelColor(x, y)
-				FindNearestCluster(prm, color)
+				FindNearestCluster(prm, color, clusters)
 			}
 		}
 
@@ -331,7 +329,7 @@ func QuantizePalette(img *bitmap.DirectBitmap, prm *Settings) {
 		Tx := cpc.PixelWidth(prm.VirtualMode, y, 0)
 		for x := 0; x < width; x += Tx {
 			originalColor := img.GetPixelColor(x, y)
-			nearest := FindNearestCluster(prm, originalColor)
+			nearest := FindNearestCluster(prm, originalColor, clusters)
 			for dx := 0; dx < Tx && x+dx < width; dx++ {
 				img.SetPixelColor(x+dx, y, nearest.CentroidColor)
 			}

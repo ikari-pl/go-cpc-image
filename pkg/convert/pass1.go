@@ -142,7 +142,7 @@ func GetNumColorPixelCpc(prm *Settings, p bitmap.RgbColor) int {
 // GetPixel retrieves and processes a pixel with all transformations applied.
 // This includes averaging, bit-depth reduction, color channel adjustments,
 // contrast, luminosity/saturation, and optional dithering.
-func GetPixel(source *bitmap.DirectBitmap, xPix, yPix, Tx int, prm *Settings, pct int) bitmap.RgbColor {
+func GetPixel(source *bitmap.DirectBitmap, xPix, yPix, Tx int, prm *Settings, pct int, state *ConversionState) bitmap.RgbColor {
 	var p bitmap.RgbColor
 
 	// Smoothing (averaging) if enabled
@@ -201,9 +201,9 @@ func GetPixel(source *bitmap.DirectBitmap, xPix, yPix, Tx int, prm *Settings, pc
 
 	// Apply contrast and luminosity/saturation if pixel is not black
 	if p.R != 0 || p.V != 0 || p.B != 0 {
-		r := float32(contrastTable[p.R])
-		v := float32(contrastTable[p.V])
-		b := float32(contrastTable[p.B])
+		r := float32(state.ContrastTable[p.R])
+		v := float32(state.ContrastTable[p.V])
+		b := float32(state.ContrastTable[p.B])
 
 		// Apply luminosity and saturation adjustments
 		if prm.PctLumi != 100 || prm.PctSat != 100 {
@@ -236,7 +236,7 @@ func GetPixel(source *bitmap.DirectBitmap, xPix, yPix, Tx int, prm *Settings, pc
 		// Apply dithering using existing dither system
 		// Create a wrapper to match the dither.Bitmap interface
 		wrapper := &bitmapWrapper{source}
-		p = DoDitherFull(wrapper, xPix, yPix, Tx, p, chosen, prm.DiffErr)
+		p = doDitherFullState(wrapper, xPix, yPix, Tx, p, chosen, prm.DiffErr, state)
 	}
 
 	return p
@@ -255,11 +255,11 @@ func (w *bitmapWrapper) SetPixel(x, y int, color bitmap.RgbColor) {
 // - Reduces palette to CPC colors
 // - Fills frequency table (colorFrequency)
 // - Applies dithering if requested
-func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings) {
+func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings, state *ConversionState) {
 	// Clear frequency table
-	for i := range colorFrequency {
-		for j := range colorFrequency[i] {
-			colorFrequency[i][j] = 0
+	for i := range state.ColorFrequency {
+		for j := range state.ColorFrequency[i] {
+			state.ColorFrequency[i][j] = 0
 		}
 	}
 
@@ -270,7 +270,7 @@ func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings) {
 		Method: prm.Method,
 		DiffErr: prm.DiffErr,
 	}
-	pct := SetMatDither(ditherParam)
+	pct := setMatDitherState(ditherParam, state)
 
 	var p, chosen, n1, n2 bitmap.RgbColor
 	var colorIndex int
@@ -291,7 +291,7 @@ func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings) {
 
 		for xPix := 0; xPix < width; xPix += Tx {
 			for yy := 0; yy < stepY; yy += 2 {
-				p = GetPixel(source, xPix, yy+yPix, Tx, prm, pct)
+				p = GetPixel(source, xPix, yy+yPix, Tx, prm, pct, state)
 
 				// Find closest CPC color
 				if prm.CpcPlus {
@@ -305,7 +305,7 @@ func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings) {
 				}
 
 				// Increment frequency counter
-				colorFrequency[colorIndex][(yPix+yy)>>1]++
+				state.ColorFrequency[colorIndex][(yPix+yy)>>1]++
 
 				// Set pixel if not using true color dithering
 				if !prm.TrueColorDither {
@@ -320,8 +320,8 @@ func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings) {
 			// True color dithering processing
 			if prm.TrueColorDither {
 				// Average of 2 pixels
-				p0 := GetPixel(source, xPix, yPix, Tx, prm, pct)
-				p1 := GetPixel(source, xPix, yPix+2, Tx, prm, pct)
+				p0 := GetPixel(source, xPix, yPix, Tx, prm, pct, state)
+				p1 := GetPixel(source, xPix, yPix+2, Tx, prm, pct, state)
 
 				r := int(p0.R) + int(p1.R)
 				v := int(p0.V) + int(p1.V)

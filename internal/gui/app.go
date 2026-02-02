@@ -12,6 +12,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
@@ -667,6 +668,36 @@ func (app *Application) SetStatus(status string) {
 	fyne.Do(func() {
 		app.statusBar.SetText(status)
 	})
+}
+
+// ShowProgress shows a modal progress dialog that blocks UI interaction.
+// Returns a function to update progress (0.0-1.0) and a function to dismiss.
+func (app *Application) ShowProgress(title string) (update func(progress float64, status string), dismiss func()) {
+	bar := widget.NewProgressBar()
+	label := widget.NewLabel(title)
+	content := container.NewVBox(label, bar)
+
+	d := dialog.NewCustomWithoutButtons(title, content, app.window)
+
+	fyne.Do(func() {
+		d.Show()
+		d.Resize(fyne.NewSize(400, 100))
+	})
+
+	update = func(progress float64, status string) {
+		fyne.Do(func() {
+			bar.SetValue(progress)
+			label.SetText(status)
+		})
+	}
+
+	dismiss = func() {
+		fyne.Do(func() {
+			d.Hide()
+		})
+	}
+
+	return update, dismiss
 }
 
 // syncCropToParams copies the GUI crop state into params for project save.

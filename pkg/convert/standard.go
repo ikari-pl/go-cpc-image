@@ -136,7 +136,7 @@ func (ec *EGXConverter) Convert(source *bitmap.DirectBitmap, prm *Settings, dest
 
 // Pass2 performs the second conversion pass: reduces image to final CPC format.
 // This is called by the main Convert function.
-func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, splitCount *int) {
+func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, splitCount *int, state *ConversionState) {
 	var colorTable [16][272]bitmap.RgbColor
 	var MemoLockState [16]int
 
@@ -178,7 +178,7 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, splitCoun
 		// First find colors for the narrower mode (fewer pens), then lock them
 		// and find remaining colors for the wider mode
 		newMax := cpc.MaxPen(prm.VirtualMode, yEgx, yEgx)
-		FindBestColors(newMax, MemoLockState, prm, &dest.BitmapCpc.Palette)
+		FindBestColors(newMax, MemoLockState, prm, &dest.BitmapCpc.Palette, state)
 		for i := 0; i < newMax; i++ {
 			MemoLockState[i] = 1
 		}
@@ -191,13 +191,13 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, splitCoun
 
 		if prm.VirtualMode == 5 {
 			mxConv := NewModeXConverter(prm, prm.CpcPlus)
-			// Copy global frequency table into the converter
-			mxConv.colorFrequency = colorFrequency
+			// Copy state frequency table into the converter
+			mxConv.colorFrequency = state.ColorFrequency
 			*splitCount = mxConv.FindBestColorsModeX(&colMode5, MemoLockState, prm.GetScreenHeight())
 		} else {
 			spConv := NewSplitConverter(prm, prm.CpcPlus)
-			// Copy global frequency table into the converter
-			spConv.colorFrequency = colorFrequency
+			// Copy state frequency table into the converter
+			spConv.colorFrequency = state.ColorFrequency
 			*splitCount = spConv.FindBestColorsModeSplit(&colMode5, MemoLockState, prm.GetScreenHeight())
 			maxPen = 9 // Split mode uses 9 pens
 		}
@@ -221,7 +221,7 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, splitCoun
 		}
 	} else {
 		// Standard CPC modes or EGX modes
-		FindBestColors(maxPen, MemoLockState, prm, &dest.BitmapCpc.Palette)
+		FindBestColors(maxPen, MemoLockState, prm, &dest.BitmapCpc.Palette, state)
 
 		// Fill color table from bitmap palette
 		// NumLines is CPC lines (200 standard), screen height is NumLines*2 pixels.

@@ -17,13 +17,18 @@ const (
 	DISTANCE_MANHATTAN Distance = 2 // Manhattan distance
 )
 
-// FrequencyTable stores color frequency counts for palette optimization
-// First dimension: color index (4096 for CPC+, 27 for standard CPC)
-// Second dimension: scanline (272 max for overscan)
-var colorFrequency [4096][272]int
-
-// ContrastTable lookup table for contrast adjustment
-var contrastTable [256]byte
+// ConversionState holds state data that was previously global,
+// allowing for concurrent conversions without shared state.
+type ConversionState struct {
+	// FrequencyTable stores color frequency counts for palette optimization
+	// First dimension: color index (4096 for CPC+, 27 for standard CPC)
+	// Second dimension: scanline (272 max for overscan)
+	ColorFrequency [4096][272]int
+	// ContrastTable lookup table for contrast adjustment
+	ContrastTable [256]byte
+	// MatDither is the current dithering matrix (nil if disabled)
+	MatDither [][]float64
+}
 
 // ImageCpc represents a CPC image with screen memory and palette
 type ImageCpc struct {
@@ -50,17 +55,20 @@ func MinMaxByte(value float64) byte {
 // This is the main entry point replicating the C# Convert function.
 // Returns the number of unique colors found in the source image.
 func Convert(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, noInfo bool) int {
+	// Create conversion state
+	state := &ConversionState{}
+
 	// Clear frequency table
-	for i := range colorFrequency {
-		for j := range colorFrequency[i] {
-			colorFrequency[i][j] = 0
+	for i := range state.ColorFrequency {
+		for j := range state.ColorFrequency[i] {
+			state.ColorFrequency[i][j] = 0
 		}
 	}
 
 	// Build contrast lookup table
 	c := float64(prm.PctContrast) / 100.0
 	for i := 0; i < 256; i++ {
-		contrastTable[i] = MinMaxByte(((float64(i)/255.0-0.5)*c+0.5)*255.0)
+		state.ContrastTable[i] = MinMaxByte(((float64(i)/255.0-0.5)*c+0.5)*255.0)
 	}
 
 	// Sync BitmapCpc mode and dimensions with params so EncodeToCpc/DrawBitmap
@@ -78,14 +86,14 @@ func Convert(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, noInfo 
 	}
 
 	// Pass 1: Color reduction and frequency counting
-	ConvertPass1(source, prm)
+	ConvertPass1(source, prm, state)
 
 	// Calculate number of unique colors in image
 	numColors := 0
-	for i := 0; i < len(colorFrequency); i++ {
+	for i := 0; i < len(state.ColorFrequency); i++ {
 		found := false
 		for y := 0; y < 272; y++ {
-			if !found && colorFrequency[i][y] > 0 {
+			if !found && state.ColorFrequency[i][y] > 0 {
 				numColors++
 				found = true
 			}
@@ -94,7 +102,7 @@ func Convert(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, noInfo 
 
 	// Pass 2: Final conversion to CPC format
 	splitCount := 0
-	Pass2(source, dest, prm, &splitCount)
+	Pass2(source, dest, prm, &splitCount, state)
 
 	// After Pass2, encode the display bitmap to CPC screen memory
 	if dest.DisplayBmp != nil && dest.BitmapCpc != nil {
@@ -115,12 +123,12 @@ func Convert(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, noInfo 
 
 // GetFrequencyTable returns the color frequency table for diagnostic purposes.
 // Returns a map of color index -> total pixel count across all lines.
-func GetFrequencyTable(maxColors int) map[int]int {
+func GetFrequencyTable(maxColors int, state *ConversionState) map[int]int {
 	result := make(map[int]int)
 	for i := 0; i < maxColors; i++ {
 		total := 0
 		for y := 0; y < 272; y++ {
-			total += colorFrequency[i][y]
+			total += state.ColorFrequency[i][y]
 		}
 		if total > 0 {
 			result[i] = total

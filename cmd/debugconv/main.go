@@ -104,8 +104,14 @@ func testMode(src *bitmap.DirectBitmap, mode int, tag string) {
 	}
 
 	// Run Pass1 separately to inspect frequency table before FindBestColors clears it
-	convert.ConvertPass1(resized, params)
-	freqTable := convert.GetFrequencyTable(27)
+	state := &convert.ConversionState{}
+	// Build contrast lookup table (normally done by Convert)
+	c := float64(params.PctContrast) / 100.0
+	for i := 0; i < 256; i++ {
+		state.ContrastTable[i] = convert.MinMaxByte(((float64(i)/255.0-0.5)*c+0.5)*255.0)
+	}
+	convert.ConvertPass1(resized, params, state)
+	freqTable := convert.GetFrequencyTable(27, state)
 	fmt.Printf("  After Pass1 — frequency table (%d distinct CPC colors):\n", len(freqTable))
 	for idx := 0; idx < 27; idx++ {
 		if count, ok := freqTable[idx]; ok {
