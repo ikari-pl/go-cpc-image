@@ -31,6 +31,8 @@
 - **Compression methods:** zx0, zx0v2, zx1, lzw
 - **Compression ratio reporting**
 - **File size statistics**
+- **Rejects already-compressed input** (PKS/OCP signatures and the compressed
+  extensions `.zx0`/`.zx1`/`.lzw`/`.pks`/`.cmp`, rejected unconditionally)
 
 #### Info Command ✅
 - **File type detection:** .scr, .dsk, .pal

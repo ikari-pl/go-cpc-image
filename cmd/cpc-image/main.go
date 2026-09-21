@@ -18,6 +18,7 @@ import (
 	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 	"github.com/ikari-pl/go-cpc-image/pkg/compress"
 	"github.com/ikari-pl/go-cpc-image/pkg/convert"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 	"github.com/ikari-pl/go-cpc-image/pkg/fileio"
 	"github.com/ikari-pl/go-cpc-image/pkg/render"
 )
@@ -356,6 +357,34 @@ func runPack(cmd *cobra.Command, args []string) error {
 	inputSize := len(inputData)
 	if verbose {
 		fmt.Printf("Input size: %d bytes\n", inputSize)
+	}
+
+	// ---- Refuse to re-compress already-compressed data.
+	// Packing an already-compressed file produces corrupt output, so fail with
+	// a non-zero exit code instead (shell-script friendly).
+
+	// Content-signature checks first: PKS ("PK…") and OCP ("MJH") have reliable
+	// magics. PKS files also carry a valid AMSDOS header, so it is stripped
+	// before inspecting the payload.
+	payloadCheck := inputData
+	if len(inputData) >= 128 && cpc.CheckAmsdos(inputData) {
+		payloadCheck = inputData[128:]
+	}
+	if _, perr := compress.ParsePKSHeader(payloadCheck); perr == nil {
+		return fmt.Errorf("pack: input file is already PKS-compressed: %s", inputFile)
+	}
+	if len(payloadCheck) >= 3 && payloadCheck[0] == 'M' && payloadCheck[1] == 'J' && payloadCheck[2] == 'H' {
+		return fmt.Errorf("pack: input file is already OCP-compressed: %s", inputFile)
+	}
+
+	// LZW / ZX0 / ZX1 / PKS / CMP have no reliable magic signature, so the file
+	// extension decides the format. Compressed-looking extensions are
+	// rejected unconditionally — even when the file carries a valid AMSDOS
+	// screen header (e.g. a .CMP repacked with a header).
+	ext := strings.ToLower(filepath.Ext(inputFile))
+	switch ext {
+	case ".zx0", ".zx1", ".lzw", ".pks", ".cmp":
+		return fmt.Errorf("pack: input file appears to be already compressed (extension %s): %s", ext, inputFile)
 	}
 
 	// Compress data

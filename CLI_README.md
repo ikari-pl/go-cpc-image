@@ -85,6 +85,15 @@ cpc-image pack -i screen.scr -o screen.zx0 --method zx0
 cpc-image pack -i data.bin -o data.zx1 --method zx1
 ```
 
+**Rejecting already-compressed input:** `pack` refuses to re-compress data that
+is already compressed and exits with a **non-zero code** so scripts can react.
+A PKS `PK` signature, an OCP `MJH` signature, or the compressed file
+extensions `.zx0` / `.zx1` / `.lzw` / `.pks` / `.cmp` (LZW/ZX0/ZX1/PKS/CMP have
+no magic signature) all cause an error. Such extensions are rejected
+unconditionally — even when the file happens to carry a valid AMSDOS screen
+header. For any other extension, a valid AMSDOS header with a screen load
+address is treated as a legit raw SCR.
+
 ### info - Display file information
 
 Show metadata about CPC files including AMSDOS headers, palette information, and file dimensions.
