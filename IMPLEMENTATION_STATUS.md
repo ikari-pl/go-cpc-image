@@ -31,6 +31,17 @@
 - **Compression methods:** zx0, zx0v2, zx1, lzw
 - **Compression ratio reporting**
 - **File size statistics**
+- **Rejects already-compressed input** (PKS/OCP signatures and the compressed
+  extensions `.zx0`/`.zx1`/`.lzw`/`.pks`/`.cmp`, rejected unconditionally)
+
+#### Unpack Command ✅
+- **Decompression methods:** lzw, ocp (PKS unsupported — input with `PK`
+  signature is rejected)
+- **Auto-detection** from file header when `--method` is omitted (MJH → ocp;
+  PKS "PK" signatures are rejected; otherwise lzw)
+- **Rejects raw (uncompressed) SCR input** in auto-detect with a non-zero exit
+- **Rejects unrecognized data**: LZW output that is not a recognized CPC screen
+  size (16336 / 31936 / 16000 bytes) is treated as corrupt
 
 #### Info Command ✅
 - **File type detection:** .scr, .dsk, .pal
