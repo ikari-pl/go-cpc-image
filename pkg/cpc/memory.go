@@ -24,21 +24,25 @@ func BitmapSize(numCol int, numLig int) int {
 
 // StandardScreen represents standard CPC screen dimensions
 const (
-	StandardCols  = 80   // 80 columns * 8 pixels = 640 pixels wide
-	StandardLines = 200  // 200 lines * 2 pixels = 400 pixels high
+	StandardCols  = 80  // 80 columns * 8 pixels = 640 pixels wide
+	StandardLines = 200 // 200 lines * 2 pixels = 400 pixels high
 )
 
 // OverscanScreen represents overscan CPC screen dimensions
 const (
-	OverscanCols  = 96   // 96 columns * 8 pixels = 768 pixels wide
-	OverscanLines = 272  // 272 lines * 2 pixels = 544 pixels high
+	OverscanCols  = 96  // 96 columns * 8 pixels = 768 pixels wide
+	OverscanLines = 272 // 272 lines * 2 pixels = 544 pixels high
 )
+
+// ModePalOffset is the offset of the embedded ModePal block in a standard SCR
+// (mode byte + 16 ink values), used by convertSCRToPNG.
+const ModePalOffset = 0x17D0
 
 // ScreenConfig holds the current screen configuration
 type ScreenConfig struct {
 	NumCol int // Number of columns (80 standard, 96 overscan)
 	NumLig int // Number of lines (200 standard, 272 overscan)
-	YEgx  int // EGX line offset (for EGX modes)
+	YEgx   int // EGX line offset (for EGX modes)
 }
 
 // NewStandardScreen returns a standard CPC screen configuration
@@ -46,7 +50,7 @@ func NewStandardScreen() ScreenConfig {
 	return ScreenConfig{
 		NumCol: StandardCols,
 		NumLig: StandardLines,
-		YEgx:  0,
+		YEgx:   0,
 	}
 }
 
@@ -55,7 +59,7 @@ func NewOverscanScreen() ScreenConfig {
 	return ScreenConfig{
 		NumCol: OverscanCols,
 		NumLig: OverscanLines,
-		YEgx:  0,
+		YEgx:   0,
 	}
 }
 

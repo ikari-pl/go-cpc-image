@@ -85,6 +85,50 @@ cpc-image pack -i screen.scr -o screen.zx0 --method zx0
 cpc-image pack -i data.bin -o data.zx1 --method zx1
 ```
 
+**Rejecting already-compressed input:** `pack` refuses to re-compress data that
+is already compressed and exits with a **non-zero code** so scripts can react.
+A PKS `PK` signature, an OCP `MJH` signature, or the compressed file
+extensions `.zx0` / `.zx1` / `.lzw` / `.pks` / `.cmp` (LZW/ZX0/ZX1/PKS/CMP have
+no magic signature) all cause an error. Such extensions are rejected
+unconditionally — even when the file happens to carry a valid AMSDOS screen
+header. For any other extension, a valid AMSDOS header with a screen load
+ address is treated as a legit raw SCR.
+
+### unpack - Decompress binary files
+
+Decompress files compressed with LZW or OCP. When `--method` is omitted, the
+format is **auto-detected** from the file header: an `MJH` payload selects OCP,
+and everything else is assumed to be LZW.
+
+**Basic Usage:**
+```bash
+# Auto-detected decompression
+cpc-image unpack -i data.lzw -o data.bin
+
+# Explicit method
+cpc-image unpack -i data.ocp -o data.bin --method ocp
+```
+
+**Rejecting already-compressed PKS input:** PKS files carry a `PK` signature.
+PKS decompression is **not yet implemented** (the PKSL column-major variant
+requires screen-layout conversion that is a follow-up item), so `unpack`
+**refuses** any input whose payload begins with `PK` — in auto-detect *and*
+with `--method pks` — with a **non-zero exit**. This prevents silently emitting
+a corrupt `.SCR`.
+
+**Rejecting raw (uncompressed) SCR input:** in auto-detect mode, `unpack` refuses
+to operate on a raw (already-uncompressed) CPC screen dump: a valid AMSDOS header
+with a screen load address (`&C000` or `&0200`), or a payload whose size matches
+the standard (16336 bytes) or overscan (31936 bytes) bitmap, fails with a
+non-zero exit. This prevents silently emitting garbage or echoing the input back.
+With an explicit `--method`, the CLI keeps trying but still rejects a trivial
+LZW round-trip (input echoed byte-for-byte).
+
+**Rejecting unrecognized data:** LZW decompression of an unknown/non-LZW file can
+succeed with a bogus output. To prevent emitting a corrupt file, `unpack` only
+accepts LZW output whose size matches a recognized CPC screen payload
+(16336 / 31936 / 16000 bytes); anything else fails with a non-zero exit.
+
 ### info - Display file information
 
 Show metadata about CPC files including AMSDOS headers, palette information, and file dimensions.
