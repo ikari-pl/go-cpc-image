@@ -98,6 +98,9 @@ func LoadPalette(filename string, palette []uint16, params *SCRParams) error {
 		return fmt.Errorf("invalid palette file format")
 	}
 
+	// The first payload byte holds the screen mode the palette was saved with.
+	params.VirtualMode = int(pal[0])
+
 	// Convert CpcVGA lookup
 	for i := 0; i < 16; i++ {
 		for j := 0; j < 27; j++ {
