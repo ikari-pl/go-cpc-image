@@ -20,6 +20,12 @@ const (
 	MethodZX1
 	MethodZX0Ovs
 	MethodOCP
+	MethodPKS  // PKS, default variant (PKSL: 320x200 standard)
+	MethodPKSL // PKS 320x200 standard
+	MethodPKS3 // PKS 320x200 mode 3
+	MethodPKSP // PKS 320x200 Plus
+	MethodPKVL // PKS overscan standard
+	MethodPKVP // PKS overscan Plus
 )
 
 // LZW represents the LZW compression/decompression engine
@@ -323,7 +329,7 @@ func (lzw *LZW) PackStd(bufIn []byte, lengthIn int, bufOut []byte, lengthOut int
 								if codecount+1 >= len(codebuffer) {
 									break
 								}
-								codebuffer[codecount] = byte(0x80 + ((stlen-3)<<4) + ((stpos-1)>>8))
+								codebuffer[codecount] = byte(0x80 + ((stlen - 3) << 4) + ((stpos - 1) >> 8))
 								codecount++
 								codebuffer[codecount] = byte(stpos - 1)
 								codecount++
@@ -331,7 +337,7 @@ func (lzw *LZW) PackStd(bufIn []byte, lengthIn int, bufOut []byte, lengthOut int
 								if codecount+2 >= len(codebuffer) {
 									break
 								}
-								codebuffer[codecount] = byte(0x10 + ((stpos-1)>>8))
+								codebuffer[codecount] = byte(0x10 + ((stpos - 1) >> 8))
 								codecount++
 								codebuffer[codecount] = byte(stpos - 1)
 								codecount++
@@ -402,7 +408,7 @@ func (lzw *LZW) PackStd(bufIn []byte, lengthIn int, bufOut []byte, lengthOut int
 			var d int
 			for d = 0; d < lzw.matches[b]; d++ {
 				if lzw.matchtable[b][d] >= matchtablestart {
-					copy(lzw.matchtable[b][d:], lzw.matchtable[b][d:lzw.matches[b]])
+					copy(lzw.matchtable[b][0:], lzw.matchtable[b][d:lzw.matches[b]])
 					break
 				}
 			}

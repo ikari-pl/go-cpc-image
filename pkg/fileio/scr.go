@@ -573,7 +573,7 @@ func Poke16(data []byte, offset int, value uint16) {
 // SaveSCR saves a CPC bitmap as an SCR file with optional compression and embedded code
 func SaveSCR(filename string, bitmap []byte, bitmapSize int, packMethod PackMethod, format OutputFormat, params SCRParams, palette []uint16, mode5Colors [][]int) (int, error) {
 	var bufPack [0x8000]byte
-	overscan := bitmapSize > 0x3F00
+	overscan := bitmapSize > 0x4000
 
 	// Prepare palette data
 	var modePal [48]byte
