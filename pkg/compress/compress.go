@@ -92,6 +92,21 @@ func (c *Compressor) Pack(bufIn []byte, lengthIn int, bufOut []byte, lengthOut i
 	case MethodOCP:
 		return c.ocp.PackOCP(bufIn, lengthIn, bufOut, 0x4000)
 
+	case MethodPKS, MethodPKSL:
+		return c.pks.PackPKS(bufIn, lengthIn, bufOut, PKSL, nil)
+
+	case MethodPKS3:
+		return c.pks.PackPKS(bufIn, lengthIn, bufOut, PKS3, nil)
+
+	case MethodPKSP:
+		return c.pks.PackPKS(bufIn, lengthIn, bufOut, PKSP, nil)
+
+	case MethodPKVL:
+		return c.pks.PackPKS(bufIn, lengthIn, bufOut, PKVL, nil)
+
+	case MethodPKVP:
+		return c.pks.PackPKS(bufIn, lengthIn, bufOut, PKVP, nil)
+
 	default:
 		return 0, errors.New("unsupported compression method")
 	}
@@ -105,6 +120,10 @@ func (c *Compressor) Depack(bufIn []byte, startIn int, bufOut []byte, pkMethod P
 
 	case MethodOCP:
 		return c.ocp.DepackOCP(bufIn[startIn:], bufOut)
+
+	case MethodPKS, MethodPKSL, MethodPKS3, MethodPKSP, MethodPKVL, MethodPKVP:
+		n, _, err := c.pks.DepackPKS(bufIn[startIn:], bufOut)
+		return n, err
 
 	default:
 		return 0, errors.New("unsupported decompression method")

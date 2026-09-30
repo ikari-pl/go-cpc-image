@@ -69,12 +69,19 @@ cpc-image pack -i data.bin -o data.zx0 --method zx0
 - `-i, --input` - Input binary file (required)
 - `-o, --output` - Output file (required)
 - `--method` - Compression method (default: `zx0`)
+- `--palette` - Palette file (`.pal`) to embed in the PKSL header
 
 **Available Compression Methods:**
 - `zx0` - ZX0 optimal compression
 - `zx0v2` - ZX0 version 2
 - `zx1` - ZX1 optimal compression
 - `lzw` - LZW compression
+- `pks` - PKS packed screen (default variant, PKSL)
+- `pksl` - PKS 320x200 standard (classic palette)
+- `pks3` - PKS 320x200 mode 3
+- `pksp` - PKS 320x200 CPC Plus
+- `pkvl` - PKS overscan standard
+- `pkvp` - PKS overscan CPC Plus
 
 **Examples:**
 ```bash
@@ -83,7 +90,69 @@ cpc-image pack -i screen.scr -o screen.zx0 --method zx0
 
 # Compress with ZX1
 cpc-image pack -i data.bin -o data.zx1 --method zx1
+
+# Pack a screen as PKSL (320x200 standard); the 17-byte ModePal is taken from
+# the .SCR itself and embedded in the PKS header
+cpc-image pack -i screen.scr -o screen.pks --method pksl
+
+# ...or embed the palette from an external .pal file instead
+cpc-image pack -i screen.scr -o screen.pks --method pksl --palette screen.pal
 ```
+
+**PKS palettes:** `PKSL` embeds a 17-byte ModePal (mode + 16 inks). By default
+`pack` takes it from the input screen's own ModePal at `&17D0`; `--palette`
+overrides it. The other variants (`pks3`, `pksp`, `pkvl`, `pkvp`) carry no
+palette, so the flag is ignored with a warning. When the screen has no usable
+(non-empty) ModePal and no `--palette` is given, the header keeps an empty
+palette and a warning is printed.
+
+**Rejecting already-compressed input:** `pack` refuses to re-compress data that
+is already compressed and exits with a **non-zero code** so scripts can react.
+A PKS `PK` signature, an OCP `MJH` signature, or the compressed file
+extensions `.zx0` / `.zx1` / `.lzw` / `.pks` / `.cmp` (LZW/ZX0/ZX1/PKS/CMP have
+no magic signature) all cause an error. Such extensions are rejected
+unconditionally — even when the file happens to carry a valid AMSDOS screen
+header. For any other extension, a valid AMSDOS header with a screen load
+ address is treated as a legit raw SCR.
+
+### unpack - Decompress binary files
+
+Decompress files compressed with LZW, OCP or the PKS family. When `--method` is
+omitted, the format is **auto-detected** from the file header: a `PK` payload
+selects PKS, an `MJH` payload selects OCP, and everything else is assumed to be
+LZW.
+
+**Basic Usage:**
+```bash
+# Auto-detected decompression
+cpc-image unpack -i data.lzw -o data.bin
+
+# Explicit method
+cpc-image unpack -i data.ocp -o data.bin --method ocp
+
+# PKS screen (variant read from the PKxx signature)
+cpc-image unpack -i screen.pks -o screen.scr
+```
+
+**PKS family (`PK` payloads):** decompressed transparently, whichever variant
+the signature names. For `PKSL` the payload is column-major pixel data: it is
+scattered back into the CPC screen layout and the embedded ModePal is
+re-written at `&17D0`, so the restored `.SCR` is self-describing, like the
+original screens. `PKVL` / `PKVP` (overscan) and the other variants emit the
+payload as it is.
+
+**Rejecting raw (uncompressed) SCR input:** in auto-detect mode, `unpack` refuses
+to operate on a raw (already-uncompressed) CPC screen dump: a valid AMSDOS header
+with a screen load address (`&C000` or `&0200`), or a payload whose size matches
+the standard (16336 bytes) or overscan (31936 bytes) bitmap, fails with a
+non-zero exit. This prevents silently emitting garbage or echoing the input back.
+With an explicit `--method`, the CLI keeps trying but still rejects a trivial
+LZW round-trip (input echoed byte-for-byte).
+
+**Rejecting unrecognized data:** LZW decompression of an unknown/non-LZW file can
+succeed with a bogus output. To prevent emitting a corrupt file, `unpack` only
+accepts LZW output whose size matches a recognized CPC screen payload
+(16336 / 31936 / 16000 bytes); anything else fails with a non-zero exit.
 
 ### info - Display file information
 

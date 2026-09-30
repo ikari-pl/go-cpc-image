@@ -4,9 +4,10 @@
 
 ### Core CLI Structure
 - **Cobra-based CLI framework** with proper command structure
-- **Four main commands implemented:**
+- **Five main commands implemented:**
   - `convert` - Image conversion with full parameter support
   - `pack` - File compression utility
+  - `unpack` - File decompression utility
   - `info` - File information display
   - `palette` - Palette extraction and conversion
 - **Comprehensive flag handling** for all conversion options
@@ -28,9 +29,25 @@
 - **Verbose output** with detailed conversion information
 
 #### Pack Command ✅
-- **Compression methods:** zx0, zx0v2, zx1, lzw
+- **Compression methods:** zx0, zx0v2, zx1, lzw, and the PKS family (pks, pksl,
+  pks3, pksp, pkvl, pkvp)
+- **PKS palette embedding:** `--palette <file.pal>` overrides the ModePal found
+  in the input screen (PKSL only; other variants ignore it with a warning)
 - **Compression ratio reporting**
 - **File size statistics**
+- **Rejects already-compressed input** (PKS/OCP signatures and the compressed
+  extensions `.zx0`/`.zx1`/`.lzw`/`.pks`/`.cmp`, rejected unconditionally)
+
+#### Unpack Command ✅
+- **Decompression methods:** lzw, ocp, and the PKS family (pks, pksl, pks3,
+  pksp, pkvl, pkvp)
+- **Auto-detection** from file header when `--method` is omitted (`PK` → pks;
+  MJH → ocp; otherwise lzw)
+- **PKSL round-trip:** the column-major payload is scattered back into the CPC
+  screen layout and the embedded ModePal re-written at `&17D0`
+- **Rejects raw (uncompressed) SCR input** in auto-detect with a non-zero exit
+- **Rejects unrecognized data**: LZW output that is not a recognized CPC screen
+  size (16336 / 31936 / 16000 bytes) is treated as corrupt
 
 #### Info Command ✅
 - **File type detection:** .scr, .dsk, .pal
