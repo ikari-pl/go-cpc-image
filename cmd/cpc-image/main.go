@@ -4,11 +4,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/gif"  // Register GIF decoder
 	_ "image/jpeg" // Register JPEG decoder
-	_ "image/png"  // Register PNG decoder
+	"image/png"    // PNG decoder and encoder
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +21,7 @@ import (
 	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 	"github.com/ikari-pl/go-cpc-image/pkg/compress"
 	"github.com/ikari-pl/go-cpc-image/pkg/convert"
+	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 	"github.com/ikari-pl/go-cpc-image/pkg/fileio"
 	"github.com/ikari-pl/go-cpc-image/pkg/render"
 )
@@ -27,15 +31,15 @@ var (
 	verbose bool
 
 	// Common conversion flags
-	inputFile      string
-	outputFile     string
-	mode           int
-	overscan       bool
-	plus           bool
-	ditherMethod   string
-	ditherPct      int
-	format         string
-	paletteFile    string
+	inputFile    string
+	outputFile   string
+	mode         int
+	overscan     bool
+	plus         bool
+	ditherMethod string
+	ditherPct    int
+	format       string
+	paletteFile  string
 
 	// Compression flags
 	compressionMethod string
@@ -79,12 +83,28 @@ var packCmd = &cobra.Command{
 	Use:   "pack",
 	Short: "Compress binary files",
 	Long: `Compress binary files using various compression algorithms.
-Supported methods: zx0, zx0v2, zx1, lzw
+Supported methods: zx0, zx0v2, zx1, lzw, and the PKS family (pks, pksl, pks3,
+pksp, pkvl, pkvp; pks defaults to the PKSL variant)
 
 Examples:
   convimgcpc pack -i data.bin -o data.zx0 --method zx0
-  convimgcpc pack -i screen.scr -o screen.zx1 --method zx1`,
+  convimgcpc pack -i screen.scr -o screen.zx1 --method zx1
+  convimgcpc pack -i screen.scr -o screen.pks --method pksl`,
 	RunE: runPack,
+}
+
+// unpackCmd represents the unpack command
+var unpackCmd = &cobra.Command{
+	Use:   "unpack",
+	Short: "Decompress binary files",
+	Long: `Decompress binary files compressed with various algorithms.
+Supported methods: pks, lzw, ocp (auto-detected from header if omitted)
+
+Examples:
+  convimgcpc unpack -i data.pks -o data.bin
+  convimgcpc unpack -i data.pks -o data.bin --method pks
+  convimgcpc unpack -i data.lzw -o data.bin --method lzw`,
+	RunE: runUnpack,
 }
 
 // infoCmd represents the info command
@@ -126,9 +146,26 @@ var availableDitherMethods = []string{
 var availableFormats = []string{"scr", "asm", "dsk", "png"}
 
 // Available compression methods
-var availableCompressionMethods = []string{"zx0", "zx0v2", "zx1", "lzw"}
+var availableCompressionMethods = []string{
+	"zx0", "zx0v2", "zx1", "lzw",
+	"pks", "pksl", "pks3", "pksp", "pkvl", "pkvp",
+	"pkul", "pku3", "pkup",
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
 
 func init() {
+	// Errors are surfaced once by main() as a single "Error: ..." line on
+	// stderr, so silence cobra's own duplicate error/usage printing for a
+	// clean one-line error output.
+	rootCmd.SilenceUsage = true
+	rootCmd.SilenceErrors = true
+
 	// Global flags
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 
@@ -152,9 +189,17 @@ func init() {
 	packCmd.Flags().StringVarP(&outputFile, "output", "o", "", "output file (required)")
 	packCmd.Flags().StringVar(&compressionMethod, "method", "zx0",
 		fmt.Sprintf("compression method (%s)", strings.Join(availableCompressionMethods, ", ")))
+	packCmd.Flags().StringVar(&paletteFile, "palette", "", "palette file to embed in the PKSL header (.pal)")
 
 	packCmd.MarkFlagRequired("input")
 	packCmd.MarkFlagRequired("output")
+
+	// Unpack command flags
+	unpackCmd.Flags().StringVarP(&inputFile, "input", "i", "", "input compressed file (required)")
+	unpackCmd.Flags().StringVarP(&outputFile, "output", "o", "", "output file (required)")
+	unpackCmd.Flags().StringVar(&compressionMethod, "method", "", "decompression method (auto-detected if omitted: pks, lzw, ocp)")
+	unpackCmd.MarkFlagRequired("input")
+	unpackCmd.MarkFlagRequired("output")
 
 	// Palette command flags
 	paletteCmd.Flags().StringVar(&inputFile, "extract", "", "extract palette from SCR file")
@@ -163,6 +208,7 @@ func init() {
 	// Add commands to root
 	rootCmd.AddCommand(convertCmd)
 	rootCmd.AddCommand(packCmd)
+	rootCmd.AddCommand(unpackCmd)
 	rootCmd.AddCommand(infoCmd)
 	rootCmd.AddCommand(paletteCmd)
 }
@@ -172,6 +218,13 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	// Validate input file exists
 	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
 		return fmt.Errorf("input file does not exist: %s", inputFile)
+	}
+
+	// If the file is an .SCR input is a CPC screen file, not a bitmap image, route it
+	// to the SCR -> PNG converter instead of image.Decode (which only handles
+	// PNG/JPEG/GIF).
+	if strings.ToLower(filepath.Ext(inputFile)) == ".scr" {
+		return convertSCRToPNG(inputFile, outputFile, cmd.ErrOrStderr())
 	}
 
 	// Validate mode
@@ -231,6 +284,11 @@ func runConvert(cmd *cobra.Command, args []string) error {
 
 	img, _, err := image.Decode(file)
 	if err != nil {
+		// Not a bitmap: the file may still be a CPC SCR that lacks the .scr
+		// extension. Try the SCR -> PNG route before giving up.
+		if cvtErr := convertSCRToPNG(inputFile, outputFile, cmd.ErrOrStderr()); cvtErr == nil {
+			return nil
+		}
 		return fmt.Errorf("failed to decode image: %w", err)
 	}
 
@@ -251,6 +309,11 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		params.NumCols = 80
 		params.NumLines = 200
 	}
+
+	// Scale the source image to the CPC canvas size
+	// so that small images fill the full screen instead of only 1/4 of it
+	// (out-of-grid reads -> black). Nearest-neighbour stretch; pen-0 fills gaps.
+	directBitmap = resizeToCanvas(directBitmap, params)
 
 	// Load palette if specified
 	if paletteFile != "" {
@@ -282,6 +345,11 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	startTime := getTimeMs()
 	numColors := convert.Convert(directBitmap, dest, params, false)
 	endTime := getTimeMs()
+
+	// The converter computes the real reduced palette in
+	// dest.BitmapCpc.Palette (FindBestColors). Sync params.Palette so the SCR
+	// / PKS embed the actually-used colors (same pattern the GUI applies).
+	copy(params.Palette[:], dest.BitmapCpc.Palette[:])
 
 	if verbose {
 		fmt.Printf("Conversion completed in %dms\n", endTime-startTime)
@@ -347,6 +415,10 @@ func runPack(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Compressing %s to %s using %s\n", inputFile, outputFile, compressionMethod)
 	}
 
+	// Auto-detected PKS variant (--method pks) tracked for the summary output.
+	var pksAutoDetected bool
+	var pksAutoVariant compress.PKSVariant
+
 	// Read input file
 	inputData, err := os.ReadFile(inputFile)
 	if err != nil {
@@ -358,25 +430,189 @@ func runPack(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Input size: %d bytes\n", inputSize)
 	}
 
+	// ---- Refuse to re-compress already-compressed data.
+	// Packing an already-compressed file produces corrupt output, so fail with
+	// a non-zero exit code instead (shell-script friendly).
+
+	// Content-signature checks first: PKS ("PK…") and OCP ("MJH") have reliable
+	// magics. PKS files also carry a valid AMSDOS header, so it is stripped
+	// before inspecting the payload.
+	payloadCheck := inputData
+	if len(inputData) >= 128 && cpc.CheckAmsdos(inputData) {
+		payloadCheck = inputData[128:]
+	}
+	if _, perr := compress.ParsePKSHeader(payloadCheck); perr == nil {
+		return fmt.Errorf("pack: input file is already PKS-compressed: %s", inputFile)
+	}
+	if len(payloadCheck) >= 3 && payloadCheck[0] == 'M' && payloadCheck[1] == 'J' && payloadCheck[2] == 'H' {
+		return fmt.Errorf("pack: input file is already OCP-compressed: %s", inputFile)
+	}
+
+	// LZW / ZX0 / ZX1 / PKS / CMP have no reliable magic signature, so the file
+	// extension decides the format. Compressed-looking extensions are
+	// rejected unconditionally — even when the file carries a valid AMSDOS
+	// screen header (e.g. a .CMP repacked with a header).
+	ext := strings.ToLower(filepath.Ext(inputFile))
+	switch ext {
+	case ".zx0", ".zx1", ".lzw", ".pks", ".cmp":
+		return fmt.Errorf("pack: input file appears to be already compressed (extension %s): %s", ext, inputFile)
+	}
+
 	// Compress data
 	compressor := compress.NewCompressor()
 	outputBuffer := make([]byte, inputSize*2) // Allocate extra space
 
-	var packMethod compress.PackMethod
+	var outputSize int
 	switch compressionMethod {
-	case "zx0":
-		packMethod = compress.MethodZX0
-	case "zx0v2":
-		packMethod = compress.MethodZX0V2
-	case "zx1":
-		packMethod = compress.MethodZX1
-	case "lzw":
-		packMethod = compress.Standard
-	}
+	case "pks", "pksl", "pks3", "pksp", "pkvl", "pkvp", "pkul", "pku3", "pkup":
+		var variant compress.PKSVariant
+		autoDetected := false
+		switch compressionMethod {
+		case "pksl":
+			variant = compress.PKSL
+		case "pks3":
+			variant = compress.PKS3
+		case "pksp":
+			variant = compress.PKSP
+		case "pkvl":
+			variant = compress.PKVL
+		case "pkvp":
+			variant = compress.PKVP
+		case "pkul":
+			variant = compress.PKUL
+		case "pku3":
+			variant = compress.PKU3
+		case "pkup":
+			variant = compress.PKUP
+		case "pks":
+			// --method pks auto-detects the PK* variant from the input screen.
+			autoDetected = true
+		}
 
-	outputSize, err := compressor.Pack(inputData, inputSize, outputBuffer, 0, packMethod)
-	if err != nil {
-		return fmt.Errorf("compression failed: %w", err)
+		// Strip a valid AMSDOS header: only the bitmap is compressed. The load
+		// address separates an overscan dump (#0200) from a standard one.
+		bitmap := inputData
+		amsAddr := uint16(0)
+		if len(inputData) >= 128 && cpc.CheckAmsdos(inputData) {
+			bitmap = inputData[128:]
+			if ent, e := cpc.GetAmsdos(inputData); e == nil {
+				amsAddr = ent.Address
+			}
+			if verbose {
+				fmt.Println("AMSDOS header detected; packing bitmap payload only")
+			}
+		}
+
+		// Auto-detect the PK* variant when the user asked for --method pks.
+		var confidence int
+		if autoDetected {
+			variant, confidence = detectPKSVariant(bitmap, amsAddr)
+			pksAutoDetected = true
+			pksAutoVariant = variant
+			if verbose {
+				overscan, modeByte, _ := pksVariantSignals(bitmap, amsAddr)
+				ovsFlag, plusFlag := 0, 0
+				if overscan {
+					ovsFlag = 1
+				}
+				if (modeByte & 0x80) != 0 {
+					plusFlag = 1
+				}
+				fmt.Printf("auto: overscan=%d modePal=0x%02X plus=%d confidence=%d -> %s\n",
+					ovsFlag, modeByte, plusFlag, confidence, pksVariantName(variant))
+				if confidence == 0 {
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"WARNING: no PKS variant signals found in input; falling back to %s\n",
+						pksVariantName(variant))
+				}
+			}
+		}
+
+		// The classic variants (PKSL, PKUL) carry a 17-byte ModePal (mode + 16
+		// inks). An explicit --palette file wins over the one embedded in the
+		// input screen; when neither is available the header keeps 17 zero bytes.
+		var palette []byte
+		switch {
+		case !pksVariantEmbedsModePal(variant):
+			if paletteFile != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s carries no palette; --palette ignored\n",
+					strings.ToUpper(compressionMethod))
+			}
+		case paletteFile != "":
+			palData, palErr := loadPaletteBytes(paletteFile)
+			if palErr != nil {
+				return fmt.Errorf("failed to load palette: %w", palErr)
+			}
+			palette = palData
+			if verbose {
+				fmt.Printf("Using palette from %s (mode=%d)\n", paletteFile, palData[0])
+			}
+		default:
+			if pal := cpc.ExtractModePal(bitmap); pal != nil && anyNonZero(pal) {
+				palette = pal
+				if verbose {
+					fmt.Printf("Using embedded ModePal from screen (mode=%d)\n", pal[0])
+				}
+			} else {
+				fmt.Fprintln(cmd.ErrOrStderr(),
+					"Warning: input screen has no usable ModePal; use --palette <file.pal> to embed one (header palette left empty)")
+			}
+		}
+
+		// The PKSL payload is column-major pixel data (16000 bytes); the other
+		// variants compress the screen dump as it is.
+		// The column-major variants (PKSL, PKUL) store pixel data only; both use
+		// the standard 80x200 column-major layout, the underscan image sitting
+		// inside that frame.
+		packInput := bitmap
+		if _, columnMajor := pksColumnMajorPayload(variant); columnMajor {
+			packInput = cpc.ScreenToColumnMajor(bitmap, cpc.StandardCols, cpc.StandardLines)
+		}
+
+		pksBuf := make([]byte, len(packInput)*2+1024)
+		packedSize, packErr := compressor.PKS().PackPKS(packInput, len(packInput), pksBuf, variant, palette)
+		if packErr != nil {
+			return fmt.Errorf("PKS compression failed: %w", packErr)
+		}
+
+		// Wrap the PKS payload in an AMSDOS header, like the original screens.
+		entete := cpc.CreeEntete(outputFile, 0xC000, uint16(packedSize), 0xC7D0)
+		entete.Length = 0
+		entete.CheckSum = uint16(cpc.CalcCheckSumStruct(entete))
+		headerBytes, hdrErr := cpc.AmsdosToByte(entete)
+		if hdrErr != nil {
+			return fmt.Errorf("failed to build AMSDOS header: %w", hdrErr)
+		}
+		final := make([]byte, len(headerBytes)+packedSize)
+		copy(final, headerBytes)
+		copy(final[len(headerBytes):], pksBuf[:packedSize])
+		outputBuffer = final
+		outputSize = len(final)
+
+		if verbose {
+			fmt.Printf("PKS variant: %s\n", pksVariantName(variant))
+		}
+
+	case "zx0", "zx0v2", "zx1", "lzw":
+		var packMethod compress.PackMethod
+		switch compressionMethod {
+		case "zx0":
+			packMethod = compress.MethodZX0
+		case "zx0v2":
+			packMethod = compress.MethodZX0V2
+		case "zx1":
+			packMethod = compress.MethodZX1
+		case "lzw":
+			packMethod = compress.Standard
+		}
+
+		outputSize, err = compressor.Pack(inputData, inputSize, outputBuffer, 0, packMethod)
+		if err != nil {
+			return fmt.Errorf("compression failed: %w", err)
+		}
+
+	default:
+		return fmt.Errorf("unsupported compression method: %s", compressionMethod)
 	}
 
 	// Write output file
@@ -392,11 +628,338 @@ func runPack(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Input: %s (%d bytes)\n", inputFile, inputSize)
 	fmt.Printf("  Output: %s (%d bytes)\n", outputFile, outputSize)
 	fmt.Printf("  Method: %s\n", compressionMethod)
+	if pksAutoDetected {
+		fmt.Printf("  Variant: %s (auto-detected)\n", pksVariantName(pksAutoVariant))
+	}
 	fmt.Printf("  Compression ratio: %.1f%%\n", compressionRatio)
 	fmt.Printf("  Space saved: %d bytes (%.1f%%)\n",
 		inputSize-outputSize, 100.0-compressionRatio)
 
 	return nil
+}
+
+// runUnpack handles the unpack command
+func runUnpack(cmd *cobra.Command, args []string) error {
+	// Validate input file exists
+	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
+		return fmt.Errorf("input file does not exist: %s", inputFile)
+	}
+
+	inputData, err := os.ReadFile(inputFile)
+	if err != nil {
+		return fmt.Errorf("failed to read input file: %w", err)
+	}
+
+	inputSize := len(inputData)
+	if inputSize == 0 {
+		return fmt.Errorf("input file is empty")
+	}
+
+	compressor := compress.NewCompressor()
+	outputBuffer := make([]byte, 0x20000) // 128KB max buffer for decompressed CPC data
+
+	var method string
+	if cmd.Flags().Changed("method") && compressionMethod != "" {
+		method = strings.ToLower(compressionMethod)
+	} else {
+		// Auto-detection: strip a valid AMSDOS header before inspecting the
+		// payload signatures.
+		payload := inputData
+		if len(inputData) >= 128 && cpc.CheckAmsdos(inputData) {
+			payload = inputData[128:]
+		}
+		// PKS signature ("PK…") → auto-detected.
+		if len(payload) >= 4 && payload[0] == 'P' && payload[1] == 'K' {
+			method = "pks"
+		} else if len(payload) >= 4 && payload[0] == 'M' && payload[1] == 'J' && payload[2] == 'H' {
+			method = "ocp"
+		} else if looksLikeRawSCR(inputData) {
+			// A raw (uncompressed) SCR submitted to the auto-detect path is
+			// rejected up-front: unpacking it would produce garbage.
+			return fmt.Errorf("unpack: input file appears to be uncompressed SCR (raw): %s", inputFile)
+		} else {
+			method = "lzw"
+		}
+	}
+
+	if verbose {
+		fmt.Printf("Decompressing %s to %s using %s\n", inputFile, outputFile, method)
+	}
+
+	var outputSize int
+	switch method {
+	case "lzw":
+		outputSize, err = compressor.Depack(inputData, 0, outputBuffer, compress.Standard)
+		if err != nil {
+			return fmt.Errorf("LZW decompression failed: %w", err)
+		}
+		// An explicit LZW unpack of a raw (uncompressed) input "succeeds" with
+		// the input echoed back unchanged — a trivial round-trip that would
+		// silently produce garbage. Reject it.
+		if bytes.Equal(outputBuffer[:outputSize], inputData) {
+			return fmt.Errorf("unpack: input file does not appear to be compressed (trivial round-trip): %s", inputFile)
+		}
+		// Guard against feeding an unsupported/non-LZW file into the LZW
+		// decompressor and silently emitting corrupt data: the decompressed
+		// output of CPC-compressed data is always a screen-sized payload
+		// (standard 16336 / overscan 31936) or the PKSL pixel buffer
+		// (16000). An output that matches none of those sizes is treated as
+		// corrupt.
+		if !isKnownScreenSize(outputSize) {
+			return fmt.Errorf("unpack: LZW output (%d bytes) is not a recognized CPC screen size; input is not a supported compressed file: %s", outputSize, inputFile)
+		}
+
+	case "ocp":
+		payload := inputData
+		if len(inputData) >= 128 && cpc.CheckAmsdos(inputData) {
+			payload = inputData[128:]
+		}
+		outputSize, err = compressor.Depack(payload, 0, outputBuffer, compress.MethodOCP)
+		if err != nil {
+			return fmt.Errorf("OCP decompression failed: %w", err)
+		}
+
+	case "pks", "pksl", "pks3", "pksp", "pkvl", "pkvp", "pkul", "pku3", "pkup":
+		payload := inputData
+		if len(inputData) >= 128 && cpc.CheckAmsdos(inputData) {
+			payload = inputData[128:]
+			if verbose {
+				fmt.Println("AMSDOS header detected; unpacking PKS payload")
+			}
+		}
+		depacked := make([]byte, 0x20000)
+		var header *compress.PKSHeader
+		outputSize, header, err = compressor.PKS().DepackPKS(payload, depacked)
+		if err != nil {
+			return fmt.Errorf("PKS decompression failed: %w", err)
+		}
+		if verbose && header != nil {
+			fmt.Printf("PKS variant: %s, CPC Plus: %v, Overscan: %v\n",
+				pksVariantName(header.Variant), header.CpcPlus, header.Overscan)
+		}
+		// A column-major variant (PKSL/PKUL) stores pixel data only: scatter it
+		// back into the standard CPC screen layout, keep the dump size of the
+		// variant's geometry (underscan screens end at 15872 bytes) and re-embed
+		// the ModePal, so the restored .SCR is self-describing as the original
+		// screens are. The other variants carry the screen dump as it is.
+		if header != nil {
+			if screenSize, columnMajor := pksColumnMajorPayload(header.Variant); columnMajor {
+				screen := cpc.ColumnMajorToScreen(depacked[:outputSize], cpc.StandardCols, cpc.StandardLines)
+				if screenSize < len(screen) {
+					screen = screen[:screenSize]
+				}
+				if anyNonZero(header.Palette[:]) {
+					screen = cpc.EmbedModePal(screen, header.Palette[:])
+				}
+				outputBuffer = screen
+				outputSize = len(screen)
+			} else {
+				outputBuffer = depacked
+			}
+		}
+
+	default:
+		return fmt.Errorf("unsupported decompression method: %s", method)
+	}
+
+	err = os.WriteFile(outputFile, outputBuffer[:outputSize], 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	fmt.Printf("Decompression successful!\n")
+	fmt.Printf("  Input: %s (%d bytes)\n", inputFile, inputSize)
+	fmt.Printf("  Output: %s (%d bytes)\n", outputFile, outputSize)
+	fmt.Printf("  Method: %s\n", method)
+
+	return nil
+}
+
+// loadPaletteBytes loads a .pal file and returns the 17-byte ModePal (mode +
+// 16 ink values) to embed in a PKS header. Ink values are classic CPC indices.
+func loadPaletteBytes(filename string) ([]byte, error) {
+	pal := make([]uint16, 16)
+	params := fileio.SCRParams{}
+	if err := fileio.LoadPalette(filename, pal, &params); err != nil {
+		return nil, err
+	}
+	out := make([]byte, 17)
+	out[0] = byte(params.VirtualMode & 0x03)
+	for i := 0; i < 16; i++ {
+		out[1+i] = byte(pal[i])
+	}
+	return out, nil
+}
+
+// anyNonZero reports whether b holds at least one non-zero byte.
+func anyNonZero(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// pksVariantSignals reads the signals `pack --method pks` keys on: overscan
+// (AMSDOS load address 0x0200, or a payload of a full 16K bank) and the mode
+// byte at 0x17D0 (standard) / 0x600 (overscan), whose 0x80 bit marks a CPC Plus
+// screen. haveMode is false when the dump is too short to hold that byte.
+func pksVariantSignals(bitmap []byte, amsAddr uint16) (overscan bool, modeByte byte, haveMode bool) {
+	overscan = (amsAddr == 0x0200) || (amsAddr == 0 && len(bitmap) >= 0x4000)
+	modeOffset := cpc.ModePalOffset // 0x17D0
+	if overscan {
+		modeOffset = 0x600
+	}
+	if modeOffset < len(bitmap) {
+		return overscan, bitmap[modeOffset], true
+	}
+	return overscan, 0, false
+}
+
+// detectPKSVariant picks the PK* variant for `pack --method pks` from the screen
+// itself: overscan + CPC Plus → PKVP, overscan → PKVL, Plus → PKSP, mode 3 with
+// a validated ModePal → PKS3, anything else → PKSL.
+//
+// The confidence is 0 when no mode byte was available at all (PKSL/PKVL is then
+// a fallback rather than a reading), 1 when the mode byte was read, and 2 for
+// the mode-3 case, which is only taken with the whole 17-byte block validated.
+func detectPKSVariant(bitmap []byte, amsAddr uint16) (compress.PKSVariant, int) {
+	overscan, modeByte, haveMode := pksVariantSignals(bitmap, amsAddr)
+	// Underscan screens are a different geometry (64x192 instead of 80x200),
+	// which shows in the payload size; they keep their ModePal at 0x17D0 like
+	// standard ones, so the geometry is the only extra signal needed here.
+	underscan := !overscan && len(bitmap) == cpc.BitmapSize(cpc.UnderscanCols, cpc.UnderscanLines)
+
+	confidence := 0
+	if haveMode {
+		confidence = 1
+	}
+	cpcPlus := (modeByte & 0x80) != 0
+	mode := int(modeByte & 0x7F)
+
+	if overscan && cpcPlus {
+		return compress.PKVP, confidence
+	}
+	if overscan {
+		return compress.PKVL, confidence
+	}
+	if underscan && cpcPlus {
+		return compress.PKUP, confidence
+	}
+	// Mode 3 is only chosen when there is certainty: the byte at 0x17D0 is 3
+	// AND the whole 17-byte block validates as a ModePal.
+	if mode == 3 && cpc.ExtractModePal(bitmap) != nil {
+		if underscan {
+			return compress.PKU3, 2
+		}
+		return compress.PKS3, 2
+	}
+	if underscan {
+		return compress.PKUL, confidence
+	}
+	if cpcPlus {
+		return compress.PKSP, confidence
+	}
+	return compress.PKSL, confidence
+}
+
+// pksVariantEmbedsModePal reports whether `pack` fills the variant's 17-byte
+// palette field from the screen's ModePal (or from --palette). Only the "L"
+// variants have that field: their payload is column-major pixel data, so the
+// palette has nowhere else to live. A CPC Plus palette neither fits in 17 bytes
+// nor needs the field — it lives inside the packed screen dump itself, at
+// &17D0, and the Plus variants carry it through the payload.
+func pksVariantEmbedsModePal(variant compress.PKSVariant) bool {
+	switch variant {
+	case compress.PKSL, compress.PKUL:
+		return true
+	}
+	return false
+}
+
+// pksColumnMajorPayload reports whether a variant stores its payload as
+// column-major pixel data and, when it does, the size of the screen dump it
+// restores. The payload itself always uses the standard 80x200 layout: the
+// reference underscan files (PKUL) pack that way, with the underscan image
+// inside the standard pixel frame. The restored screen keeps the variant's own
+// geometry, i.e. 15872 bytes for underscan instead of 16336.
+func pksColumnMajorPayload(variant compress.PKSVariant) (screenSize int, columnMajor bool) {
+	switch variant {
+	case compress.PKSL:
+		return cpc.BitmapSize(cpc.StandardCols, cpc.StandardLines), true
+	case compress.PKUL:
+		return cpc.BitmapSize(cpc.UnderscanCols, cpc.UnderscanLines), true
+	}
+	return 0, false
+}
+
+// pksVariantName returns a human-readable name for a PKS variant.
+func pksVariantName(variant compress.PKSVariant) string {
+	switch variant {
+	case compress.PKSL:
+		return "PKSL (320x200 standard)"
+	case compress.PKS3:
+		return "PKS3 (320x200 mode 3)"
+	case compress.PKSP:
+		return "PKSP (320x200 Plus)"
+	case compress.PKVL:
+		return "PKVL (overscan standard)"
+	case compress.PKVP:
+		return "PKVP (overscan Plus)"
+	case compress.PKUL:
+		return "PKUL (underscan standard)"
+	case compress.PKU3:
+		return "PKU3 (underscan mode 3)"
+	case compress.PKUP:
+		return "PKUP (underscan Plus)"
+	default:
+		return "unknown"
+	}
+}
+
+// isKnownScreenSize reports whether n is a plausible decompressed CPC screen
+// payload size (standard or overscan bitmap).
+func isKnownScreenSize(n int) bool {
+	screenSizes := map[int]bool{
+		cpc.BitmapSize(cpc.StandardCols, cpc.StandardLines):   true,
+		cpc.BitmapSize(cpc.OverscanCols, cpc.OverscanLines):   true,
+		cpc.BitmapSize(cpc.UnderscanCols, cpc.UnderscanLines): true,
+		cpc.StandardCols * cpc.StandardLines:                  true, // PKSL pixel payload
+		cpc.UnderscanCols * cpc.UnderscanLines:                true, // PKUL pixel payload
+	}
+	return screenSizes[n]
+}
+
+// looksLikeRawSCR reports whether the input looks like an uncompressed CPC
+// screen dump: either a valid AMSDOS header with a screen load address, or a
+// payload whose size matches the standard/overscan bitmap sizes.
+func looksLikeRawSCR(data []byte) bool {
+	payload := data
+	if len(data) >= 128 && cpc.CheckAmsdos(data) {
+		if ent, e := cpc.GetAmsdos(data); e == nil {
+			if ent.Address == 0xC000 || ent.Address == 0x0200 {
+				return true
+			}
+		}
+		payload = data[128:]
+	}
+	// Size heuristic with a small tolerance for slightly different writers.
+	bitmapSizes := []int{
+		cpc.BitmapSize(cpc.StandardCols, cpc.StandardLines),
+		cpc.BitmapSize(cpc.OverscanCols, cpc.OverscanLines),
+		cpc.BitmapSize(cpc.UnderscanCols, cpc.UnderscanLines),
+	}
+	for _, target := range bitmapSizes {
+		d := len(payload) - target
+		if d < 0 {
+			d = -d
+		}
+		if d <= 256 {
+			return true
+		}
+	}
+	return false
 }
 
 // runInfo handles the info command
@@ -467,6 +1030,268 @@ func mapDitherMethod(method string) string {
 	}
 }
 
+// resizeToCanvas scales the source bitmap to the CPC display canvas so that
+// a small source image fills the full screen (640x400 standard, 768x544
+// overscan) instead of being rendered at 1:1 and reading out-of-grid pixels.
+// Uses nearest-neighbour stretch; the background is filled with pen 0 color
+// (mirrors the GUI getResizeBitmap). Known limitation: native-resolution
+// fidelity is only approximate; TODO: non-integer resize and overscan
+func resizeToCanvas(source *bitmap.DirectBitmap, prm *convert.Settings) *bitmap.DirectBitmap {
+	cpcW := prm.GetScreenWidth()
+	cpcH := prm.GetScreenHeight()
+
+	// Background = pen 0 color.
+	bg := cpc.GetColor(prm.Palette[0], prm.CpcPlus)
+	resized := bitmap.NewDirectBitmap(cpcW, cpcH)
+	for y := 0; y < cpcH; y++ {
+		for x := 0; x < cpcW; x++ {
+			resized.SetPixelColor(x, y, bg)
+		}
+	}
+
+	srcW := source.Width()
+	srcH := source.Height()
+	if srcW == 0 || srcH == 0 {
+		return resized
+	}
+
+	for dy := 0; dy < cpcH; dy++ {
+		srcY := dy * srcH / cpcH
+		if srcY >= srcH {
+			srcY = srcH - 1
+		}
+		for dx := 0; dx < cpcW; dx++ {
+			srcX := dx * srcW / cpcW
+			if srcX >= srcW {
+				srcX = srcW - 1
+			}
+			resized.SetPixelColor(dx, dy, source.GetPixelColor(srcX, srcY))
+		}
+	}
+	return resized
+}
+
+// applySCRPalette parses the embedded ModePal block from the screen data and
+// populates bmp's palette. Standard SCR mode: 17-byte block at ModePalOffset
+// (mode byte + 16 ink values). Overscan: 33-byte block at 0x600. Classic mode
+// uses 27-color ink indices (0..26, 0xFF = unused → pen 0). CPC Plus uses
+// 12-bit 0x0VBR pairs (low = B|R<<4, high = V).
+//
+// Returns true when a usable palette was applied. An absent, implausible or
+// ALL-ZERO block returns false and leaves the default palette set by
+// render.NewBitmapCpcWithParams in place. An all-zero block means no palette is
+// stored: that is the case for screens whose palette is kept in a separate file
+// and for a screen unpacked from a PKS packed without --palette. Accepting it
+// would paint every pen with ink 0, i.e. a solid black image.
+func applySCRPalette(bmp *render.BitmapCpc, screenData []byte, modeOffset int) bool {
+	if modeOffset+17 > len(screenData) {
+		return false
+	}
+	modeByte := screenData[modeOffset]
+
+	if (modeByte & 0x80) != 0 {
+		// CPC Plus: 33-byte block; each pen is a low/high byte pair encoding
+		// 0x0VBR (as written by fileio.SaveSCR: low = B | R<<4, high = V).
+		if modeOffset+33 > len(screenData) {
+			return false
+		}
+		if !anyNonZero(screenData[modeOffset+1 : modeOffset+33]) {
+			return false // all-zero Plus block: no palette stored
+		}
+		bmp.CpcPlus = true
+		for i := 0; i < 16; i++ {
+			lo := screenData[modeOffset+1+i*2]
+			hi := screenData[modeOffset+2+i*2]
+			if lo == 0xFF && hi == 0xFF {
+				bmp.Palette[i] = 0 // unused pen → black
+				continue
+			}
+			bmp.Palette[i] = int(hi&0x0F)<<8 | int(lo&0x0F)<<4 | int((lo>>4)&0x0F)
+		}
+		bmp.VirtualMode = int(modeByte) & 0x03
+		return true
+	}
+
+	// Classic: 17-byte block; inks 0..26 or 0xFF (unused pen). Only accept a
+	// plausible ModePal (mode 0..4, all inks valid and not all zero) to avoid
+	// misreading pixel data or a stripped block as a palette.
+	if int(modeByte) > 4 {
+		return false
+	}
+	if !anyNonZero(screenData[modeOffset : modeOffset+17]) {
+		return false
+	}
+	for i := 0; i < 16; i++ {
+		b := screenData[modeOffset+1+i]
+		if b != 0xFF && b > 26 {
+			return false
+		}
+	}
+	bmp.VirtualMode = int(modeByte)
+	for i := 0; i < 16; i++ {
+		ink := int(screenData[modeOffset+1+i])
+		if ink == 0xFF {
+			ink = 0 // unused pen → black
+		}
+		bmp.Palette[i] = ink
+	}
+	return true
+}
+
+// rgbaToIndexed converts a rendered RGBA frame into an indexed-color image
+// using 16 palette entries ordered exactly as the SCR pens.
+// Rendered pixels come from cpc.PaletteColor, so they match the palette
+// entries exactly; a nearest-color fallback guards rounding edge cases.
+func rgbaToIndexed(img *image.RGBA, bmp *render.BitmapCpc) *image.Paletted {
+	// 16 pens in the exact order of the SCR palette.
+	palette16 := make(color.Palette, 16)
+	lookup := make(map[int]uint8, 16)
+	palRGB := make([]int, 16)
+	for i := 0; i < 16; i++ {
+		rgb := cpc.PaletteColor(bmp.Palette[i], bmp.CpcPlus)
+		palette16[i] = color.RGBA{R: uint8(rgb >> 16), G: uint8(rgb >> 8), B: uint8(rgb), A: 255}
+		palRGB[i] = rgb
+		if _, ok := lookup[rgb]; !ok {
+			lookup[rgb] = uint8(i)
+		}
+	}
+
+	bounds := img.Bounds()
+	out := image.NewPaletted(bounds, palette16)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			c := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
+			rgb := int(c.B) | int(c.G)<<8 | int(c.R)<<16
+			idx, ok := lookup[rgb]
+			if !ok {
+				idx = nearestPalIndex(palRGB, rgb)
+			}
+			out.SetColorIndex(x, y, idx)
+		}
+	}
+	return out
+}
+
+// nearestPalIndex returns the palette entry closest (Euclidean) to rgb.
+func nearestPalIndex(palRGB []int, rgb int) uint8 {
+	best := 0
+	bestDist := int64(1) << 62
+	for i, p := range palRGB {
+		dr := int64((p>>16)&0xFF) - int64((rgb>>16)&0xFF)
+		dg := int64((p>>8)&0xFF) - int64((rgb>>8)&0xFF)
+		db := int64(p&0xFF) - int64(rgb&0xFF)
+		d := dr*dr + dg*dg + db*db
+		if d < bestDist {
+			bestDist = d
+			best = i
+		}
+	}
+	return uint8(best)
+}
+
+// scrGeometry returns the CPC screen geometry (bytes per line, lines) of a raw
+// SCR payload. Underscan dumps — BitmapSize(64, 192) bytes — use the underscan
+// layout instead of the standard 80x200 one, whose pixel addresses differ.
+// Overscan dumps are not special-cased yet: faithful overscan rendering is a
+// separate change, which can extend this helper with the AMSDOS load address.
+func scrGeometry(payloadLen int) (numCol, numLig int) {
+	if payloadLen == cpc.BitmapSize(cpc.UnderscanCols, cpc.UnderscanLines) {
+		return cpc.UnderscanCols, cpc.UnderscanLines
+	}
+	return cpc.StandardCols, cpc.StandardLines
+}
+
+// convertSCRToPNG converts an Amstrad CPC SCR screen into a PNG rendering.
+// This is the reverse direction of the normal convert command: input is .SCR,
+// output is .PNG. warn receives a warning when the screen carries no usable
+// ModePal block and the render falls back to the default CPC palette.
+func convertSCRToPNG(inputFile, outputFile string, warn io.Writer) error {
+	data, err := os.ReadFile(inputFile)
+	if err != nil {
+		return fmt.Errorf("failed to read input file: %w", err)
+	}
+
+	payload := data
+	if len(data) >= 128 && cpc.CheckAmsdos(data) {
+		payload = data[128:]
+	}
+
+	// PKS-compressed screens carry a "PK" signature instead of raw screen
+	// data. Rendering the compressed bytes as if they were a screen would
+	// silently produce a corrupt PNG, so reject every variant explicitly.
+	if len(payload) >= 4 && payload[0] == 'P' && payload[1] == 'K' {
+		return fmt.Errorf("input file is PKS-compressed, which convert does not support: %s", inputFile)
+	}
+
+	// Underscan dumps are 15872 bytes and their pixel addresses differ from the
+	// standard 80x200 layout, so read the geometry before the padding below.
+	numCol, numLig := scrGeometry(len(payload))
+
+	// LoadSCR needs at least 16384 bytes; a standard SCR payload is 16336.
+	if len(payload) < 16384 {
+		pad := make([]byte, 16384)
+		copy(pad, payload)
+		payload = pad
+	}
+
+	screenData, _, lerr := fileio.LoadSCR(payload)
+	if lerr != nil {
+		return fmt.Errorf("failed to load SCR data: %w", lerr)
+	}
+
+	bmp := render.NewBitmapCpcWithParams(numCol, numLig, false)
+	copy(bmp.ScreenData[:], screenData)
+
+	// ModePal offset: standard SCR layout places the mode + palette at
+	// ModePalOffset; overscan uses a different location (0x600). The overscan
+	// signal is derived from the AMSDOS load address or the file size.
+	modeOffset := cpc.ModePalOffset
+	addr := uint16(0)
+	if len(data) >= 128 && cpc.CheckAmsdos(data) {
+		if ent, e := cpc.GetAmsdos(data); e == nil {
+			addr = ent.Address
+		}
+	}
+	if (addr == 0x0200) || (addr == 0 && len(data) >= 0x4000) {
+		modeOffset = 0x600
+	}
+
+	// Use the palette embedded in the SCR (ModePal block) instead of the
+	// fixed default palette returned by LoadSCR. When there is no usable
+	// block the default palette is a guess, not the screen's real one: say so
+	// instead of silently rendering a solid block.
+	if !applySCRPalette(bmp, screenData, modeOffset) && warn != nil {
+		fmt.Fprintln(warn, "Warning: screen has no usable ModePal; rendering with the default CPC palette")
+	}
+
+	img := bmp.RenderToRGBA()
+	if img == nil {
+		return fmt.Errorf("failed to render SCR screen data")
+	}
+
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer file.Close()
+	// Indexed-color PNG whose palette follows the SCR pen order.
+	if err := png.Encode(file, rgbaToIndexed(img, bmp)); err != nil {
+		return fmt.Errorf("failed to encode PNG: %w", err)
+	}
+
+	fileInfo, _ := os.Stat(outputFile)
+	fmt.Printf("Conversion successful!\n")
+	fmt.Printf("  Input: %s (%d bytes)\n", inputFile, len(data))
+	if fileInfo != nil {
+		fmt.Printf("  Output: %s (%d bytes)\n", outputFile, fileInfo.Size())
+	} else {
+		fmt.Printf("  Output: %s\n", outputFile)
+	}
+	fmt.Printf("  Mode: %d (%dx%d pixels)\n", bmp.VirtualMode, bmp.NumCol*8, bmp.NumLig*2)
+
+	return nil
+}
+
 // saveSCR saves the converted image as an SCR file
 func saveSCR(filename string, dest *convert.ImageCpc, params *convert.Settings) error {
 	if verbose {
@@ -481,9 +1306,11 @@ func saveSCR(filename string, dest *convert.ImageCpc, params *convert.Settings) 
 		VirtualMode: params.VirtualMode,
 	}
 
-	// Get bitmap data
-	bitmapData := dest.BitmapCpc.ScreenData[:]
-	bitmapSize := len(bitmapData)
+	// Get bitmap data — slice to the real CPC bitmap size. ScreenData is a
+	// [0x10000]byte buffer; writing the whole 64KB would produce a file that is
+	// 128+65536 bytes instead of 128+BitmapSize(80|96, 200|272).
+	bitmapSize := cpc.BitmapSize(params.NumCols, params.NumLines)
+	bitmapData := dest.BitmapCpc.ScreenData[:bitmapSize]
 
 	// Extract palette (simplified - should use real palette from conversion)
 	palette := make([]uint16, 16)
@@ -588,11 +1415,4 @@ func convertPalette(inputFile, outputFile string) error {
 func getTimeMs() int64 {
 	// This is a placeholder - in real implementation would use time.Now().UnixMilli()
 	return 0
-}
-
-func main() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
 }

@@ -1,7 +1,10 @@
 // Package cpc provides CPC memory layout and screen addressing.
 package cpc
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 // TestCpcAddress tests CPC screen memory address calculation with known values
 func TestCpcAddress(t *testing.T) {
@@ -83,7 +86,7 @@ func TestCpcAddressOverscanOffset(t *testing.T) {
 
 	// Without the offset, the difference would be (256-254)/16*numCol + ((256&14)-(254&14))*0x400
 	// With offset: addr256 should have +0x3800
-	expectedDiff := (256>>4)*numCol + ((256&14)*0x400) + 0x3800 - addr254
+	expectedDiff := (256>>4)*numCol + ((256 & 14) * 0x400) + 0x3800 - addr254
 
 	diff := addr256 - addr254
 	if diff != expectedDiff {
@@ -92,7 +95,7 @@ func TestCpcAddressOverscanOffset(t *testing.T) {
 	}
 
 	// Verify that the offset is exactly 0x3800 more than it would be without the offset
-	addrWithoutOffset := (256>>4)*numCol + ((256&14) * 0x400)
+	addrWithoutOffset := (256>>4)*numCol + ((256 & 14) * 0x400)
 	addrWithOffset := addr256
 	offsetApplied := addrWithOffset - (addrWithoutOffset - addr254 + addr254)
 	if offsetApplied != 0x3800 {
@@ -108,8 +111,8 @@ func TestBitmapSize(t *testing.T) {
 		numLig int
 		expect int
 	}{
-		{"Standard screen", 80, 200, 16336},   // Actual size = 0x3FD0
-		{"Overscan screen", 96, 272, 31936},   // Actual size = 0x7CC0
+		{"Standard screen", 80, 200, 16336}, // Actual size = 0x3FD0
+		{"Overscan screen", 96, 272, 31936}, // Actual size = 0x7CC0
 	}
 
 	for _, tt := range tests {
@@ -238,8 +241,8 @@ func TestScreenConfigGetAdr(t *testing.T) {
 // TestScreenConfigGetBitmapSize tests bitmap size calculation via ScreenConfig
 func TestScreenConfigGetBitmapSize(t *testing.T) {
 	tests := []struct {
-		name   string
-		cfg    ScreenConfig
+		name    string
+		cfg     ScreenConfig
 		minSize int
 	}{
 		{"Standard screen", NewStandardScreen(), 16336},
@@ -251,6 +254,84 @@ func TestScreenConfigGetBitmapSize(t *testing.T) {
 			got := tt.cfg.GetBitmapSize()
 			if got != tt.minSize {
 				t.Errorf("GetBitmapSize() = %d, want %d", got, tt.minSize)
+			}
+		})
+	}
+}
+
+// TestUnderscanGeometry pins the underscan screen dimensions added for the
+// underscan PKS variants, and guards the pre-existing standard/overscan values.
+func TestUnderscanGeometry(t *testing.T) {
+	if got := BitmapSize(UnderscanCols, UnderscanLines); got != 15872 {
+		t.Errorf("BitmapSize(64, 192) = %d, want 15872", got)
+	}
+	if UnderscanPixelBytes != 12288 {
+		t.Errorf("UnderscanPixelBytes = %d, want 12288", UnderscanPixelBytes)
+	}
+	cfg := NewUnderscanScreen()
+	if cfg.NumCol != 64 || cfg.NumLig != 192 {
+		t.Errorf("NewUnderscanScreen() = %dx%d, want 64x192", cfg.NumCol, cfg.NumLig)
+	}
+	if cfg.TailleX() != 512 || cfg.TailleY() != 384 {
+		t.Errorf("underscan code space = %dx%d, want 512x384", cfg.TailleX(), cfg.TailleY())
+	}
+	if cfg.GetBitmapSize() != 15872 {
+		t.Errorf("underscan GetBitmapSize() = %d, want 15872", cfg.GetBitmapSize())
+	}
+
+	// The standard and overscan values must not move.
+	for _, tc := range []struct {
+		name      string
+		got, want int
+	}{
+		{"standard bitmap size", BitmapSize(StandardCols, StandardLines), 16336},
+		{"overscan bitmap size", BitmapSize(OverscanCols, OverscanLines), 31936},
+		{"PKSL pixel bytes", PKSLPixelBytes, 16000},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %d, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// TestColumnMajorGeometryRoundTrip verifies the generalised column-major helpers
+// for both geometries: the payload size follows the geometry, scattering it back
+// restores every pixel region byte, and only the layout gaps are left zeroed.
+func TestColumnMajorGeometryRoundTrip(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		numCol    int
+		numLig    int
+		pixelSize int
+	}{
+		{"standard 80x200", StandardCols, StandardLines, PKSLPixelBytes},
+		{"underscan 64x192", UnderscanCols, UnderscanLines, UnderscanPixelBytes},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bmp := make([]byte, BitmapSize(tc.numCol, tc.numLig))
+			for i := range bmp {
+				bmp[i] = byte(i*7 + 3)
+			}
+
+			payload := ScreenToColumnMajor(bmp, tc.numCol, tc.numLig)
+			if len(payload) != tc.pixelSize {
+				t.Fatalf("payload size = %d, want %d", len(payload), tc.pixelSize)
+			}
+
+			scattered := ColumnMajorToScreen(payload, tc.numCol, tc.numLig)
+			if len(scattered) != len(bmp) {
+				t.Fatalf("scattered size = %d, want %d", len(scattered), len(bmp))
+			}
+			for x := 0; x < tc.numCol; x++ {
+				for y := 0; y < tc.numLig; y++ {
+					adr := x + CpcAddress(y<<1, tc.numCol, tc.numLig)
+					if scattered[adr] != bmp[adr] {
+						t.Fatalf("pixel (%d,%d) at %d = %d, want %d", x, y, adr, scattered[adr], bmp[adr])
+					}
+				}
+			}
+			if !bytes.Equal(ScreenToColumnMajor(scattered, tc.numCol, tc.numLig), payload) {
+				t.Error("column-major payload does not survive a screen round-trip")
 			}
 		})
 	}
