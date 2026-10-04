@@ -12,11 +12,24 @@ go build ./cmd/cpc-image/
 
 This creates the `cpc-image` executable in the project root.
 
+## Global flags
+
+- `--version` - print the release version (`convimgcpc version 1.2.1`) and exit
+- `-v, --verbose` - print a banner naming the version and the details of every step
+
 ## Commands
 
 ### convert - Convert images to CPC formats
 
 Convert bitmap images (PNG, JPEG, BMP, GIF) to Amstrad CPC screen formats.
+
+An input file with a `.scr` extension is treated as an Amstrad CPC screen and
+converted the other way, to an **indexed-color PNG**: the palette follows the
+exact pen order stored in the screen (its ModePal block), so colours are
+preserved instead of being taken from a fixed default. A **PKS-compressed**
+screen is unpacked first — the PKS family is what `pack` writes — so
+`samples/**/pk_compressed/*.SCR` can be rendered directly; only a variant the
+engine does not implement is refused.
 
 **Basic Usage:**
 ```bash
@@ -32,7 +45,7 @@ cpc-image convert -i photo.png -o screen.scr -m 1
 - `-d, --dither` - Dithering method (default: `floyd-steinberg`)
 - `--dither-pct` - Dithering percentage 0-100 (default: 50)
 - `-f, --format` - Output format: scr, asm, dsk, png (default: `scr`)
-- `--palette` - Lock palette from .pal file
+- `--palette` - Lock the palette from a file: `.pal` (classic) or `.kit` (CPC Plus)
 
 **Available Dithering Methods:**
 - `floyd-steinberg` - Floyd-Steinberg error diffusion
@@ -54,7 +67,33 @@ cpc-image convert -i image.bmp -o screen.asm -f asm -m 1
 
 # Use Bayer dithering at 75%
 cpc-image convert -i pic.png -o screen.scr -d bayer2 --dither-pct 75
+
+# Lock the pens to a .pal file (pen i = entry i), instead of letting the
+# converter choose them by pixel frequency
+cpc-image convert -i pic.png -o screen.scr -m 1 --palette screen.pal
+
+# SCR -> PNG honouring an external palette instead of the one in the screen
+cpc-image convert -i screen.scr -o screen.png --palette screen.pal
 ```
+
+**Source palette handling:** `convert` honours a source palette, in this order:
+1. `--palette <file>` — the file wins, in BOTH directions (PNG→SCR and SCR→PNG).
+   Each of its 16 pens is locked, so the SCR/PKS embeds exactly those colours in
+   that order. `.pal` holds classic ink indices, `.kit` holds CPC Plus 12-bit
+   colours; the container is picked from the extension.
+2. Otherwise, an **indexed PNG** (a `PLTE`-carrying image, such as the one
+   `convert` itself writes for SCR→PNG) is honoured when it holds no more
+   entries than the selected mode supports (mode 0 → 16, 1 → 4, 2 → 2): pen i
+   takes entry i, so the pen order survives the round trip. An entry that is not
+   exactly representable is snapped to the nearest CPC colour (a classic ink, or
+   the nearest 12-bit `0x0VBR` under `--plus`) and the count is warned about.
+3. Otherwise the truecolor path is used, with the pens assigned by frequency.
+
+A PNG whose palette holds MORE entries than the mode supports cannot be
+represented: a warning is printed and the image is converted exactly like a
+truecolor one (its palette is ignored). When the input is an SCR and `--palette`
+is given, the screen's own ModePal is ignored — `-v` reports
+`using palette from <file> (SCR palette ignored)`.
 
 ### pack - Compress binary files
 
@@ -69,12 +108,22 @@ cpc-image pack -i data.bin -o data.zx0 --method zx0
 - `-i, --input` - Input binary file (required)
 - `-o, --output` - Output file (required)
 - `--method` - Compression method (default: `zx0`)
+- `--palette` - Palette file to embed: a `.pal` (classic) or a `.kit` (CPC Plus)
 
 **Available Compression Methods:**
 - `zx0` - ZX0 optimal compression
 - `zx0v2` - ZX0 version 2
 - `zx1` - ZX1 optimal compression
 - `lzw` - LZW compression
+- `pks` - PKS packed screen, variant auto-detected from the input screen
+- `pksl` - PKS 320x200 standard (classic palette)
+- `pks3` - PKS 320x200 mode 3
+- `pksp` - PKS 320x200 CPC Plus
+- `pkvl` - PKS overscan standard
+- `pkvp` - PKS overscan CPC Plus
+- `pkul` - PKS underscan standard
+- `pku3` - PKS underscan mode 3
+- `pkup` - PKS underscan CPC Plus
 
 **Examples:**
 ```bash
@@ -83,7 +132,117 @@ cpc-image pack -i screen.scr -o screen.zx0 --method zx0
 
 # Compress with ZX1
 cpc-image pack -i data.bin -o data.zx1 --method zx1
+
+# Pack a screen as PKSL (320x200 standard); the 17-byte ModePal is taken from
+# the .SCR itself and embedded in the PKS header
+cpc-image pack -i screen.scr -o screen.pks --method pksl
+
+# ...or embed the palette from an external .pal file instead
+cpc-image pack -i screen.scr -o screen.pks --method pksl --palette screen.pal
+
+# Let pack pick the variant from the screen itself
+cpc-image pack -i screen.scr -o screen.pks --method pks
 ```
+
+**PKS variant auto-detection (`--method pks`):** the variant comes from the input
+screen: an overscan dump (AMSDOS load address `&0200`, or a payload of a full 16K
+bank) selects `PKVL`/`PKVP`, an underscan dump (a `&3E00` payload, i.e. the
+64x192 screen) selects `PKUL`/`PKU3`/`PKUP`, the `0x80` bit of the mode byte at
+`&17D0` (`&600` for overscan) marks a CPC Plus screen (`PKSP`/`PKVP`/`PKUP`), mode
+3 combined with a valid ModePal selects `PKS3`/`PKU3`, and anything else stays
+`PKSL`. `-v` prints the signals that were read, and a warning is printed when
+none were found at all. Naming a variant explicitly (`--method pksl`, …) skips
+the detection.
+
+**PKS palettes:** `--palette` accepts a `.pal` (classic ink indices) or a `.kit`
+(CPC Plus 12-bit colours); the container decides how the file is decoded, and
+either one can drive either kind of screen.
+
+- The classic `L` variants (`PKSL`, `PKUL`) embed a 17-byte ModePal field
+  (mode + 16 inks): their payload is column-major pixel data, so the palette has
+  nowhere else to live. By default `pack` takes it from the input screen's own
+  ModePal at `&17D0`; `--palette` overrides it.
+- The CPC Plus variants (`PKSP`, `PKVP`, `PKUP`) have no palette field at all:
+  their 33-byte block travels inside the packed screen dump, at `&17D0` exactly
+  as a raw save keeps it (`&600` for overscan). `--palette <file.kit>` writes that
+  block into the dump before compressing, so unpacking restores it byte for byte —
+  the `0xFFFF` "unused pen" markers included. Without the flag the screen's own
+  block is carried through untouched; a screen that has none gets a warning.
+- The remaining variants (`PKS3`, `PKU3`, `PKVL`) have no palette field and pack
+  the dump as it is, so `--palette` is ignored with a warning.
+
+A 158-byte `.kit` (15 words, pens 1..15) is accepted next to the usual 160-byte
+one, and a `.kit` is also recognised by its size, so a misnamed file still loads.
+When a variant needs a palette and neither the screen nor `--palette` provides a
+usable one, a warning is printed and the packed file keeps an empty palette.
+
+**Compressing the screen, not the header:** every method — the whole PKS family
+included — strips a leading AMSDOS header first, so the packed stream holds
+exactly the payload a CPC decompressor writes back to memory (128 bytes less, and
+no shift in the picture). The header is recognised by its checksum or — when that
+checksum is not one this tool validates — by its fields: binary file type, a
+length that matches the file, a screen load address (`&C000` or `&0200`) and a
+payload of a screen size. A file that is not screen-shaped is compressed as it
+is, header included. The reported ratio is measured against the compressed
+payload, and `-v` says when a header was stripped.
+
+**Rejecting already-compressed input:** `pack` refuses to re-compress data that
+is already compressed and exits with a **non-zero code** so scripts can react.
+A PKS `PK` signature, an OCP `MJH` signature, or the compressed file
+extensions `.zx0` / `.zx1` / `.lzw` / `.pks` / `.cmp` (LZW/ZX0/ZX1/PKS/CMP have
+no magic signature) all cause an error. Such extensions are rejected
+unconditionally — even when the file happens to carry a valid AMSDOS screen
+header. For any other extension, a valid AMSDOS header with a screen load
+ address is treated as a legit raw SCR.
+
+### unpack - Decompress binary files
+
+Decompress files compressed with LZW, OCP or the PKS family. When `--method` is
+omitted, the format is **auto-detected** from the file header: a `PK` payload
+selects PKS, an `MJH` payload selects OCP, and everything else is assumed to be
+LZW.
+
+**Basic Usage:**
+```bash
+# Auto-detected decompression
+cpc-image unpack -i data.lzw -o data.bin
+
+# Explicit method
+cpc-image unpack -i data.ocp -o data.bin --method ocp
+
+# PKS screen (variant read from the PKxx signature)
+cpc-image unpack -i screen.pks -o screen.scr
+```
+
+**PKS family (`PK` payloads):** decompressed transparently, whichever variant
+the signature names. For `PKSL` and `PKUL` the payload is column-major pixel
+data: it is scattered back into the CPC screen layout and the embedded ModePal is
+re-written at `&17D0`, so the restored `.SCR` is self-describing, like the
+original screens — `PKUL` screens end at `&3E00` bytes (64x192) instead of the
+standard `&3FD0`. `PKVL` / `PKVP` (overscan) and the other variants emit the
+payload as it is.
+
+**Rejecting raw (uncompressed) SCR input:** in auto-detect mode, `unpack` refuses
+to operate on a raw (already-uncompressed) CPC screen dump: a valid AMSDOS header
+with a screen load address (`&C000` or `&0200`), or a payload whose size matches
+the standard (16336 bytes) or overscan (31936 bytes) bitmap, fails with a
+non-zero exit. This prevents silently emitting garbage or echoing the input back.
+With an explicit `--method`, the CLI keeps trying but still rejects a trivial
+LZW round-trip (input echoed byte-for-byte).
+
+**Rejecting unrecognized data:** LZW decompression of an unknown/non-LZW file can
+succeed with a bogus output. To prevent emitting a corrupt file, `unpack` only
+accepts LZW output whose size matches a recognized CPC screen payload
+(16336 / 31936 / 16000 bytes); anything else fails with a non-zero exit.
+
+**Rejecting output names it cannot honour:** `unpack` writes the decompressed
+bytes as they are — a screen dump for the PKS family, the plain stream for LZW and
+OCP — so it never renders an image or assembles a file. An output name ending in
+`.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.asm` or `.dsk` is therefore refused
+with a non-zero exit instead of being filled with raw bytes: a `.png` holding
+16336 raw bytes opens in no viewer, and the mistake would only surface later, in
+whatever read it. Render a restored screen with
+`convert -i out.scr -o out.png`.
 
 ### info - Display file information
 
