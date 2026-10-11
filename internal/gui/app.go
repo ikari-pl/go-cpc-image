@@ -375,7 +375,7 @@ func (app *Application) countUsedPens() int {
 			}
 		}
 
-		cpcAddr := cpc.CpcAddress(y, b.NumCol, b.NumLig)
+		cpcAddr := cpc.CpcAddress(y>>1, b.NumCol, b.NumLig)
 
 		for x := 0; x < b.NumCol; x++ {
 			addr := cpcAddr + x

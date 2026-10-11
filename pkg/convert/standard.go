@@ -29,14 +29,14 @@ func (sc *StandardConverter) Convert(source *bitmap.DirectBitmap, prm *Settings,
 
 	// Offset for import draw mode
 	offsetY := 0
-	if prm.ModeImpDraw && height == 544 {
+	if prm.ModeImpDraw && prm.NumLines == 272 {
 		offsetY = 2
 	}
 
 	// Process each scanline pair
-	for y := 0; y < height; y += 2 {
+	for y := 0; y < height; y += prm.RowStep() {
 		// Calculate pixel step and max pens for this scanline
-		Tx := cpc.PixelWidth(prm.VirtualMode, y, prm.YEgx)
+		Tx := prm.PixelStep(y)
 		maxPen = cpc.MaxPen(prm.VirtualMode, y, prm.YEgx)
 
 		// Process each pixel group
@@ -47,7 +47,7 @@ func (sc *StandardConverter) Convert(source *bitmap.DirectBitmap, prm *Settings,
 
 			// Find closest color in palette
 			for i := 0; i < maxPen; i++ {
-				c := colorTable[i][y>>1] // Use scanline-specific palette
+				c := colorTable[i][prm.LineIndex(y)] // Keyed by CRTC line
 				if prm.DisableState[i] == 0 {
 					// Calculate weighted Euclidean distance
 					dr := int(c.R) - int(pix.R)
@@ -94,9 +94,9 @@ func (ec *EGXConverter) Convert(source *bitmap.DirectBitmap, prm *Settings, dest
 	width := prm.GetScreenWidth()
 	height := prm.GetScreenHeight()
 
-	for y := 0; y < height; y += 2 {
+	for y := 0; y < height; y += prm.RowStep() {
 		// Determine mode for this scanline based on EGX pattern
-		Tx := cpc.PixelWidth(prm.VirtualMode, y, yEgx)
+		Tx := prm.PixelStep(y)
 		maxPen = cpc.MaxPen(prm.VirtualMode, y, yEgx)
 
 		for x := 0; x < width; x += Tx {
@@ -106,7 +106,7 @@ func (ec *EGXConverter) Convert(source *bitmap.DirectBitmap, prm *Settings, dest
 
 			// Find closest color in scanline-specific palette
 			for i := 0; i < maxPen; i++ {
-				c := colorTable[i][y>>1]
+				c := colorTable[i][prm.LineIndex(y)]
 				if prm.DisableState[i] == 0 {
 					dr := int(c.R) - int(pix.R)
 					dv := int(c.V) - int(pix.V)
@@ -141,6 +141,7 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, splitCoun
 	var MemoLockState [16]int
 
 	// Ensure display bitmap is the right size
+	dest.RowsPerLine = prm.LineStep()
 	if dest.DisplayBmp == nil || dest.DisplayBmp.Width() != prm.GetScreenWidth() || dest.DisplayBmp.Height() != prm.GetScreenHeight() {
 		dest.DisplayBmp = bitmap.NewDirectBitmap(prm.GetScreenWidth(), prm.GetScreenHeight())
 	}
@@ -225,7 +226,7 @@ func Pass2(source *bitmap.DirectBitmap, dest *ImageCpc, prm *Settings, splitCoun
 
 		// Fill color table from bitmap palette
 		// NumLines is CPC lines (200 standard), screen height is NumLines*2 pixels.
-		// The converter reads colorTable[i][y>>1] where y ranges over pixel height (0..399),
+		// The converter reads colorTable[i][LineIndex(y)], i.e. by CRTC line,
 		// so we must fill colorTable for all CPC line indices 0..NumLines-1.
 		for line := 0; line < prm.NumLines; line++ {
 			yPixel := line * 2 // pixel Y for this CPC line

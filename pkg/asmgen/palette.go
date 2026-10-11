@@ -285,8 +285,10 @@ func (aw *ASMWriter) GenerateKitPalette(palette []uint16, label string) error {
 
 		if i < len(palette) {
 			color := palette[i]
-			// KIT format: rearrange bits differently than OCP+
-			kitValue := ((color & 0xF00)) + ((color & 0xF0) << 4) + ((color & 0x0F) >> 4)
+			// KIT format: bits 8-11 (green) stay put, the two nibbles of the low
+			// byte are swapped so B sits in bits 4-7 and R in bits 0-3 — the
+			// inverse of the decode fileio.LoadPaletteKit performs.
+			kitValue := (color & 0xF00) | ((color & 0x0F) << 4) | ((color & 0xF0) >> 4)
 			line.WriteString(fmt.Sprintf("#%03X", kitValue))
 		} else {
 			line.WriteString("#000")

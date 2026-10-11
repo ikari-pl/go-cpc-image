@@ -355,7 +355,7 @@ func setMatDitherState(prm DitherParam, state *ConversionState) int {
 }
 
 // doDitherFullState applies dithering using the state's matrix.
-func doDitherFullState(source Bitmap, xPix, yPix, tx int, p, chosen bitmap.RgbColor, diffErr bool, state *ConversionState) bitmap.RgbColor {
+func doDitherFullState(source Bitmap, xPix, yPix, tx, lineStep int, p, chosen bitmap.RgbColor, diffErr bool, state *ConversionState) bitmap.RgbColor {
 	md := state.MatDither
 	if md == nil {
 		return p
@@ -367,7 +367,7 @@ func doDitherFullState(source Bitmap, xPix, yPix, tx int, p, chosen bitmap.RgbCo
 		for y := 0; y < matHeight; y++ {
 			for x := 0; x < matWidth; x++ {
 				pixelX := xPix + tx*x
-				pixelY := yPix + (y << 1)
+				pixelY := yPix + y*lineStep
 				if pixelX < source.Width() && pixelY < source.Height() {
 					pix := source.GetPixelColor(pixelX, pixelY)
 					pix.R = minMaxByte(float64(pix.R) + float64(int(p.R)-int(chosen.R))*md[y][x]/256.0)

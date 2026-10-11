@@ -98,6 +98,9 @@ func LoadPalette(filename string, palette []uint16, params *SCRParams) error {
 		return fmt.Errorf("invalid palette file format")
 	}
 
+	// The first payload byte holds the screen mode the palette was saved with.
+	params.VirtualMode = int(pal[0])
+
 	// Convert CpcVGA lookup
 	for i := 0; i < 16; i++ {
 		for j := 0; j < 27; j++ {
@@ -179,8 +182,11 @@ func SavePaletteKit(filename string, palette []uint16) error {
 	start := 128
 	for i := 0; i < 16; i++ {
 		col := palette[i]
-		kit := ((col & 0xF00)) + ((col & 0xF0) << 4) + ((col & 0x0F) >> 4)
-		binary.LittleEndian.PutUint16(data[start:], kit)
+		// Inverse of the decode LoadPaletteKit performs: bits 8-11 (the green
+		// level) stay put, and the two nibbles of the low byte are swapped, so
+		// B becomes bits 4-7 and R bits 0-3.
+		kit := (col & 0xF00) | ((col & 0x0F) << 4) | ((col & 0xF0) >> 4)
+		binary.LittleEndian.PutUint16(data[start:], uint16(kit))
 		start += 2
 	}
 
