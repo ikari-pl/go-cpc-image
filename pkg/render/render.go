@@ -111,32 +111,44 @@ func (b *BitmapCpc) EncodeToCpc(bmpLock *bitmap.DirectBitmap, egx bool, ligneSta
 		b.ScreenData[i] = 0
 	}
 
-	width := b.NumCol << 3  // Convert columns to pixels
-	height := b.NumLig << 1  // Convert lines to pixels
+	// The bitmap holds one pixel per picture pixel, and its size says which model
+	// wrote it: one buffer row per CRTC line (the screen's own grid) or two (the
+	// fixed timeline the EGX modes need). The picture pixels a byte holds are then
+	// bmpWidth/NumCol apart in the buffer — 1 in the native grid, the mode's
+	// pixel width on the timeline — which is how convert lays it out.
+	bmpW, bmpH := bmpLock.Width(), bmpLock.Height()
+	if bmpW <= 0 || bmpH <= 0 || b.NumCol <= 0 || b.NumLig <= 0 {
+		return
+	}
+	rowsPerLine := bmpH / b.NumLig
+	if rowsPerLine < 1 {
+		rowsPerLine = 1
+	}
+	perByte := 8 / cpc.PixelWidth(b.VirtualMode, 0, 0)
+	step := bmpW / (b.NumCol * perByte)
+	if step < 1 {
+		step = 1
+	}
 
-	// Process each scanline pair
-	for y := 0; y < height; y += 2 {
-		cpcAddr := cpc.CpcAddress(y, b.NumCol, b.NumLig)
-		tx := cpc.PixelWidth(b.VirtualMode, y, 0)
+	for line := 0; line < b.NumLig; line++ {
+		cpcAddr := cpc.CpcAddress(line, b.NumCol, b.NumLig)
+		y := line * rowsPerLine
 
-		// Process each byte (8 pixels)
-		for x := 0; x < width; x += 8 {
+		for col := 0; col < b.NumCol; col++ {
+			if egx && (line&1) != ligneStart {
+				continue // the other line phase owns this row
+			}
 			var pixByte byte = 0
 			decal := 0
-
-			// Skip EGX lines if not in the right phase
-			if !egx || ((y>>1)&1) == ligneStart {
-				// Pack pixels into byte according to mode
-				for p := 0; p < 8; p += tx {
-					pen := cpc.GetPenColor(bmpLock, x+p, y, b.Palette, b.CpcPlus)
-					pixByte |= byte(cpc.TabOctetMode[pen] >> uint(decal))
-					decal++
-				}
-				// Bounds check for ScreenData array
-				addr := cpcAddr + (x >> 3)
-				if addr < len(b.ScreenData) {
-					b.ScreenData[addr] = pixByte
-				}
+			for p := 0; p < perByte; p++ {
+				x := (col*perByte + p) * step
+				pen := cpc.GetPenColor(bmpLock, x, y, b.Palette, b.CpcPlus)
+				pixByte |= byte(cpc.TabOctetMode[pen] >> uint(decal))
+				decal++
+			}
+			addr := cpcAddr + col
+			if addr < len(b.ScreenData) {
+				b.ScreenData[addr] = pixByte
 			}
 		}
 	}
@@ -154,7 +166,7 @@ func (b *BitmapCpc) EncodeToCpcForceMode1(bmpLock *bitmap.DirectBitmap) {
 	height := b.NumLig << 1
 
 	for y := 0; y < height; y += 2 {
-		cpcAddr := cpc.CpcAddress(y, b.NumCol, b.NumLig)
+		cpcAddr := cpc.CpcAddress(y>>1, b.NumCol, b.NumLig)
 		tx := cpc.PixelWidth(b.VirtualMode, y, 0)
 		maxPen := cpc.MaxPen(b.VirtualMode, y, 0)
 
@@ -225,7 +237,7 @@ func (b *BitmapCpc) DrawBitmap(numCol, numLig int, realWidth int, isSprite bool)
 		if isSprite {
 			cpcAddr = numCol * (y >> 1)
 		} else {
-			cpcAddr = cpc.CpcAddress(y, numCol, numLig)
+			cpcAddr = cpc.CpcAddress(y>>1, numCol, numLig)
 		}
 
 		xBitmap := 0

@@ -20,6 +20,7 @@ import (
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/ikari-pl/go-cpc-image/internal/version"
 	"github.com/ikari-pl/go-cpc-image/pkg/bitmap"
 	"github.com/ikari-pl/go-cpc-image/pkg/cpc"
 	"github.com/ikari-pl/go-cpc-image/pkg/fileio"
@@ -139,7 +140,7 @@ func (tw *ToolbarWidget) buildLayoutWithDemo(demoBtn, loadAnimBtn, saveProjectBt
 		widget.NewButton("Auto", func() { go tw.app.AutoOptimize() }),
 		widget.NewButton("Deep", func() { go tw.app.DeepOptimize() }),
 		layout.NewSpacer(),
-		widget.NewLabel("Go CPC image! v1.2.0"),
+		widget.NewLabel("Go CPC image! v"+version.Version),
 	)
 }
 
@@ -154,7 +155,7 @@ func (tw *ToolbarWidget) buildLayout() {
 		widget.NewButton("Auto", func() { go tw.app.AutoOptimize() }),
 		widget.NewButton("Deep", func() { go tw.app.DeepOptimize() }),
 		layout.NewSpacer(),
-		widget.NewLabel("Go CPC image! v1.2.0"),
+		widget.NewLabel("Go CPC image! v"+version.Version),
 	)
 }
 
