@@ -4,6 +4,7 @@ package cpc
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 	"testing"
 )
 
@@ -377,4 +378,131 @@ func TestAmsdosRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+// validHeader builds the header CreeEntete writes for a standard screen.
+func validHeader(t *testing.T) []byte {
+	t.Helper()
+	hdr, err := AmsdosToByte(CreeEntete("SCREEN.SCR", 0xC000, 0x3FD0, 0xC7D0))
+	if err != nil {
+		t.Fatalf("AmsdosToByte failed: %v", err)
+	}
+	return hdr
+}
+
+// reChecksum makes a modified header self-consistent again, so a test can pin a
+// field test without the checksum test interfering.
+func reChecksum(hdr []byte) {
+	sum := CalcCheckSum(hdr)
+	hdr[0x43] = byte(sum & 0xFF)
+	hdr[0x44] = byte(sum >> 8)
+}
+
+// TestAmsdosHeaderPlausibility pins the field tests that keep a run of bytes
+// from being taken for an AMSDOS header: 128 zero bytes satisfy a checksum
+// comparison (0 sums to a stored 0) but have no name, and a header whose name
+// or type is not plausible is rejected even when its checksum matches.
+func TestAmsdosHeaderPlausibility(t *testing.T) {
+	t.Run("zeroed prefix", func(t *testing.T) {
+		zeroed := make([]byte, 128)
+		if CheckAmsdos(zeroed) {
+			t.Error("128 zero bytes passed CheckAmsdos")
+		}
+		if AmsdosFieldsPlausible(zeroed) {
+			t.Error("128 zero bytes passed the field test")
+		}
+		if AmsdosNameReadable(zeroed) {
+			t.Error("128 zero bytes reported a readable name")
+		}
+		if issues := AmsdosIssues(zeroed, 0); len(issues) == 0 {
+			t.Error("AmsdosIssues reported nothing for 128 zero bytes")
+		}
+	})
+
+	t.Run("valid header", func(t *testing.T) {
+		hdr := validHeader(t)
+		if !CheckAmsdos(hdr) || !AmsdosFieldsPlausible(hdr) || !AmsdosNameReadable(hdr) {
+			t.Error("a header written by CreeEntete was not accepted")
+		}
+		if issues := AmsdosIssues(hdr, 0x3FD0); len(issues) != 0 {
+			t.Errorf("AmsdosIssues on a valid header = %v, want none", issues)
+		}
+	})
+
+	t.Run("name with a control byte", func(t *testing.T) {
+		hdr := validHeader(t)
+		hdr[0x04] = 0x00 // inside the 8.3 name
+		reChecksum(hdr)
+		if AmsdosFieldsPlausible(hdr) {
+			t.Error("a NUL in the name passed the field test")
+		}
+		if CheckAmsdos(hdr) {
+			t.Error("a NUL in the name passed CheckAmsdos despite a matching checksum")
+		}
+	})
+
+	t.Run("blank name", func(t *testing.T) {
+		hdr := validHeader(t)
+		for i := 1; i <= AmsdosNameLen; i++ {
+			hdr[i] = ' '
+		}
+		reChecksum(hdr)
+		if AmsdosFieldsPlausible(hdr) {
+			t.Error("a blank name passed the field test")
+		}
+	})
+
+	t.Run("type out of range", func(t *testing.T) {
+		hdr := validHeader(t)
+		hdr[AmsdosTypeOffset] = 3
+		hdr[AmsdosStockTypeOffset] = 3
+		reChecksum(hdr)
+		if AmsdosFieldsPlausible(hdr) {
+			t.Error("a file type of 3 passed the field test")
+		}
+	})
+
+	t.Run("stock AMSDOS layout", func(t *testing.T) {
+		// A writer that follows the real AMSDOS layout: 11-byte name field, type
+		// at 0x0E, length at 0x0F, load address at 0x11. The 15-byte name field of
+		// this package's structure makes every later field read four bytes off, so
+		// such a header has to be accepted on the fields the layouts agree on.
+		hdr := make([]byte, 128)
+		copy(hdr[1:], []byte("SCREEN  SCR"))
+		hdr[AmsdosStockTypeOffset] = 2
+		hdr[0x0F] = 0xD0
+		hdr[0x10] = 0x3F
+		reChecksum(hdr)
+
+		if !AmsdosFieldsPlausible(hdr) {
+			t.Error("a stock-layout header failed the field test")
+		}
+		if !CheckAmsdos(hdr) {
+			t.Error("a stock-layout header was not accepted")
+		}
+		if issues := AmsdosIssues(hdr, 0x3FD0); len(issues) != 0 {
+			t.Errorf("AmsdosIssues on a stock-layout header = %v, want none", issues)
+		}
+	})
+
+	t.Run("length mismatch is reported but not decisive", func(t *testing.T) {
+		hdr := validHeader(t)
+		issues := AmsdosIssues(hdr, 4096)
+		if len(issues) != 1 || !strings.Contains(issues[0], "length field") {
+			t.Errorf("AmsdosIssues with a mismatched payload = %v, want one length note", issues)
+		}
+		if !CheckAmsdos(hdr) {
+			t.Error("a length mismatch alone must not invalidate the header")
+		}
+	})
+
+	t.Run("short prefix", func(t *testing.T) {
+		short := make([]byte, 64)
+		if CheckAmsdos(short) || AmsdosFieldsPlausible(short) || AmsdosNameReadable(short) {
+			t.Error("a 64-byte prefix was accepted as a header")
+		}
+		if issues := AmsdosIssues(short, -1); len(issues) != 1 {
+			t.Errorf("AmsdosIssues on a short prefix = %v, want one note", issues)
+		}
+	})
 }
