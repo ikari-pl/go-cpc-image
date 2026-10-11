@@ -154,7 +154,7 @@ func testMode(src *bitmap.DirectBitmap, mode int, tag string) {
 
 	for y := 0; y < bmpCpc.NumLig<<1; y += 2 {
 		usedLine := [16]bool{}
-		cpcAddr := cpc.CpcAddress(y, bmpCpc.NumCol, bmpCpc.NumLig)
+		cpcAddr := cpc.CpcAddress(y>>1, bmpCpc.NumCol, bmpCpc.NumLig)
 
 		for x := 0; x < bmpCpc.NumCol; x++ {
 			addr := cpcAddr + x

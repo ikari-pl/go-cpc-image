@@ -84,6 +84,40 @@ func GetColor(c int, cpcPlus bool) bitmap.RgbColor {
 	return CpcRgbPalette[c]
 }
 
+// NearestInk maps an 8-bit RGB triple onto the standard CPC palette: it returns
+// the ink index (0..26) that reproduces the colour best and whether that ink
+// matches it exactly. A colour that is not one of the 27 hardware colours — for
+// example an entry of a PNG palette — is thereby snapped onto the closest one
+// instead of being dropped.
+func NearestInk(r, g, b uint8) (ink int, exact bool) {
+	best, bestDist := 0, int64(1)<<62
+	for i := range CpcRgbPalette {
+		c := CpcRgbPalette[i]
+		if int(c.R) == int(r) && int(c.V) == int(g) && int(c.B) == int(b) {
+			return i, true
+		}
+		dr := int64(c.R) - int64(r)
+		dg := int64(c.V) - int64(g)
+		db := int64(c.B) - int64(b)
+		if d := dr*dr + dg*dg + db*db; d < bestDist {
+			bestDist, best = d, i
+		}
+	}
+	return best, false
+}
+
+// NearestPlus maps an 8-bit RGB triple onto the CPC Plus 12-bit color space: it
+// returns the 0x0VBR hardware color that reproduces it best and whether that
+// value matches it exactly. The hardware quantises each channel to 4 bits
+// (levels 0, 17, 34, ... 255), so an exact match requires every channel to be a
+// multiple of 17; any other colour is snapped to the nearest level.
+func NearestPlus(r, g, b uint8) (value int, exact bool) {
+	level := func(v uint8) int { return (int(v) + 8) / 17 }
+	r4, g4, b4 := level(r), level(g), level(b)
+	exact = int(r) == r4*17 && int(g) == g4*17 && int(b) == b4*17
+	return (g4 << 8) | (b4 << 4) | r4, exact
+}
+
 // GetPenColor finds the pen number for a given color in a bitmap.
 // This searches the current palette to find the matching pen.
 func GetPenColor(bmp *bitmap.DirectBitmap, x, y int, palette [16]int, cpcPlus bool) int {

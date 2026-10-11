@@ -236,7 +236,7 @@ func GetPixel(source *bitmap.DirectBitmap, xPix, yPix, Tx int, prm *Settings, pc
 		// Apply dithering using existing dither system
 		// Create a wrapper to match the dither.Bitmap interface
 		wrapper := &bitmapWrapper{source}
-		p = doDitherFullState(wrapper, xPix, yPix, Tx, p, chosen, prm.DiffErr, state)
+		p = doDitherFullState(wrapper, xPix, yPix, Tx, prm.LineStep(), p, chosen, prm.DiffErr, state)
 	}
 
 	return p
@@ -280,17 +280,14 @@ func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings, state *ConversionS
 	height := prm.GetScreenHeight()
 
 	// Increment step: 4 for true color dithering, 2 otherwise
-	stepY := 2
-	if prm.TrueColorDither {
-		stepY = 4
-	}
+	stepY := prm.RowStep()
 
 	// Process pixels
 	for yPix := 0; yPix < height; yPix += stepY {
-		Tx := cpc.PixelWidth(prm.VirtualMode, yPix, prm.YEgx)
+		Tx := prm.PixelStep(yPix)
 
 		for xPix := 0; xPix < width; xPix += Tx {
-			for yy := 0; yy < stepY; yy += 2 {
+			for yy := 0; yy < stepY; yy += prm.LineStep() {
 				p = GetPixel(source, xPix, yy+yPix, Tx, prm, pct, state)
 
 				// Find closest CPC color
@@ -321,7 +318,7 @@ func ConvertPass1(source *bitmap.DirectBitmap, prm *Settings, state *ConversionS
 			if prm.TrueColorDither {
 				// Average of 2 pixels
 				p0 := GetPixel(source, xPix, yPix, Tx, prm, pct, state)
-				p1 := GetPixel(source, xPix, yPix+2, Tx, prm, pct, state)
+				p1 := GetPixel(source, xPix, yPix+prm.LineStep(), Tx, prm, pct, state)
 
 				r := int(p0.R) + int(p1.R)
 				v := int(p0.V) + int(p1.V)

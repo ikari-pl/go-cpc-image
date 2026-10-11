@@ -38,6 +38,7 @@ type ImageCpc struct {
 	Width       int                 // Image width in pixels (for compatibility)
 	Height      int                 // Image height in pixels (for compatibility)
 	Mode        int                 // CPC mode (for compatibility)
+	RowsPerLine int                 // Buffer rows per CRTC line (1 native, 2 timeline)
 }
 
 // MinMaxByte clamps a value to byte range [0, 255]
@@ -145,10 +146,15 @@ func (dest *ImageCpc) SetPixelCpc(x, y, pen, tx int) {
 		return
 	}
 
+	rowsPerLine := dest.RowsPerLine
+	if rowsPerLine < 1 {
+		rowsPerLine = 1
+	}
+
 	var colorIdx int
 	if dest.BitmapCpc.VirtualMode == 5 || dest.BitmapCpc.VirtualMode == 6 {
 		// Mode X/Split: use SplitModeColors palette
-		yIdx := y >> 1
+		yIdx := y / rowsPerLine
 		if yIdx < len(dest.SplitModeColors) && pen < len(dest.SplitModeColors[yIdx]) {
 			colorIdx = dest.SplitModeColors[yIdx][pen]
 		}
@@ -161,5 +167,11 @@ func (dest *ImageCpc) SetPixelCpc(x, y, pen, tx int) {
 
 	// Match C# PaletteColor: invalid indices clamp to 0
 	rgbColor := cpc.PaletteColor(colorIdx, dest.BitmapCpc.CpcPlus)
-	dest.DisplayBmp.SetHorizontalLineDouble(x, y, tx, rgbColor)
+	if rowsPerLine > 1 {
+		// The timeline stores each picture pixel as a tx-wide, two-row block.
+		dest.DisplayBmp.SetHorizontalLineDouble(x, y, tx, rgbColor)
+		return
+	}
+	// The native grid holds one buffer pixel per picture pixel.
+	dest.DisplayBmp.SetPixel(x, y, rgbColor)
 }

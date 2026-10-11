@@ -136,7 +136,7 @@ func (e *Editor) SetCpcPixel(x, y, pen int) {
 	pixInByte := rawX % 8 // pixel offset within byte
 
 	// CPC address for this scanline
-	addr := cpc.CpcAddress(y, b.NumCol, b.NumLig) + col
+	addr := cpc.CpcAddress(y>>1, b.NumCol, b.NumLig) + col
 	if addr < 0 || addr >= len(b.ScreenData) {
 		return
 	}
@@ -200,7 +200,7 @@ func (e *Editor) GetCpcPixel(x, y int) int {
 	col := rawX / 8
 	pixInByte := rawX % 8
 
-	addr := cpc.CpcAddress(y, b.NumCol, b.NumLig) + col
+	addr := cpc.CpcAddress(y>>1, b.NumCol, b.NumLig) + col
 	if addr < 0 || addr >= len(b.ScreenData) {
 		return 0
 	}

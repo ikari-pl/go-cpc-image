@@ -265,6 +265,93 @@ func TestGetPenColorCPCPlus(t *testing.T) {
 	}
 }
 
+// TestNearestInk verifies that colours are mapped onto the standard CPC palette
+// exactly when they match one of the 27 hardware colours and are snapped to the
+// closest ink otherwise.
+func TestNearestInk(t *testing.T) {
+	tests := []struct {
+		name      string
+		r, g, b   uint8
+		wantInk   int
+		wantExact bool
+	}{
+		{"exact black", 0x00, 0x00, 0x00, 0, true},
+		{"exact blue", 0x00, 0x00, 0x66, 1, true},
+		{"exact bright red", 0xFF, 0x00, 0x00, 6, true},
+		{"exact grey", 0x66, 0x66, 0x66, 13, true},
+		{"exact bright white", 0xFF, 0xFF, 0xFF, 26, true},
+		{"near red snaps to bright red", 0xFA, 0x05, 0x05, 6, false},
+		{"mid grey snaps to grey", 0x80, 0x80, 0x80, 13, false},
+		{"dirty green snaps to green", 0x10, 0x50, 0x10, 9, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ink, exact := NearestInk(tt.r, tt.g, tt.b)
+			if ink != tt.wantInk || exact != tt.wantExact {
+				t.Errorf("NearestInk(%d,%d,%d) = (%d, %v), want (%d, %v)",
+					tt.r, tt.g, tt.b, ink, exact, tt.wantInk, tt.wantExact)
+			}
+		})
+	}
+}
+
+// TestNearestInkRoundTripEveryHardwareColour checks the property the converter
+// relies on: every one of the 27 hardware colours maps back onto itself.
+func TestNearestInkRoundTripEveryHardwareColour(t *testing.T) {
+	for i := range CpcRgbPalette {
+		c := CpcRgbPalette[i]
+		ink, exact := NearestInk(c.R, c.V, c.B)
+		if ink != i || !exact {
+			t.Errorf("NearestInk(#%02X%02X%02X) = (%d, %v), want (%d, true)",
+				c.R, c.V, c.B, ink, exact, i)
+		}
+	}
+}
+
+// TestNearestPlus verifies the CPC Plus mapping: a colour built from 4-bit
+// hardware levels is an exact match, anything else is snapped to the closest
+// 0x0VBR value.
+func TestNearestPlus(t *testing.T) {
+	tests := []struct {
+		name      string
+		r, g, b   uint8
+		wantValue int
+		wantExact bool
+	}{
+		{"exact black", 0x00, 0x00, 0x00, 0x000, true},
+		{"exact red", 0xFF, 0x00, 0x00, 0x00F, true},
+		{"exact green", 0x00, 0xFF, 0x00, 0xF00, true},
+		{"exact blue", 0x00, 0x00, 0xFF, 0x0F0, true},
+		{"exact white", 0xFF, 0xFF, 0xFF, 0xFFF, true},
+		{"exact mid gray", 0x88, 0x88, 0x88, 0x888, true},
+		{"near red snaps to red", 0xFA, 0x05, 0x05, 0x00F, false},
+		{"mixed snaps per channel", 0xF0, 0x14, 0x14, 0x11E, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value, exact := NearestPlus(tt.r, tt.g, tt.b)
+			if value != tt.wantValue || exact != tt.wantExact {
+				t.Errorf("NearestPlus(%d,%d,%d) = (0x%03X, %v), want (0x%03X, %v)",
+					tt.r, tt.g, tt.b, value, exact, tt.wantValue, tt.wantExact)
+			}
+		})
+	}
+}
+
+// TestNearestPlusRoundTripEveryColour checks that all 4096 CPC Plus colours map
+// back onto themselves.
+func TestNearestPlusRoundTripEveryColour(t *testing.T) {
+	for v := 0; v <= 0xFFF; v++ {
+		rgb := PaletteColor(v, true)
+		value, exact := NearestPlus(uint8(rgb>>16), uint8(rgb>>8), uint8(rgb))
+		if value != v || !exact {
+			t.Fatalf("NearestPlus(#%06X) = (0x%03X, %v), want (0x%03X, true)", rgb, value, exact, v)
+		}
+	}
+}
+
 // TestDefaultPalette verifies the default palette values
 func TestDefaultPalette(t *testing.T) {
 	expected := [16]int{1, 24, 20, 6, 26, 0, 2, 7, 10, 12, 14, 16, 18, 22, 1, 14}
