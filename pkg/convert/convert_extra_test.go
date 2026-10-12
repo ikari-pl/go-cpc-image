@@ -975,12 +975,22 @@ func TestParamIsOverscan(t *testing.T) {
 }
 
 func TestParamScreenDimensions(t *testing.T) {
+	// The conversion buffer is the screen's own grid, not the doubled display
+	// canvas: a standard mode-1 screen is 320x200 pixels one row per CRTC line.
 	prm := NewDefaultSettings()
-	if prm.GetScreenWidth() != 640 {
-		t.Errorf("width = %d, want 640", prm.GetScreenWidth())
+	if prm.GetScreenWidth() != 320 {
+		t.Errorf("width = %d, want 320", prm.GetScreenWidth())
 	}
-	if prm.GetScreenHeight() != 400 {
-		t.Errorf("height = %d, want 400", prm.GetScreenHeight())
+	if prm.GetScreenHeight() != 200 {
+		t.Errorf("height = %d, want 200", prm.GetScreenHeight())
+	}
+	// EGX (--plus) keeps both line phases, so the buffer still has NumLines*2
+	// rows and, at the EGX pixel width, NumCols*8/PixelWidth columns (320 for a
+	// standard 80-column screen). Output stays byte-identical to the old canvas
+	// pipeline; only the buffer holding it is now this native grid.
+	prm.VirtualMode = 3
+	if prm.GetScreenWidth() != 320 || prm.GetScreenHeight() != 400 {
+		t.Errorf("EGX buffer = %dx%d, want 320x400", prm.GetScreenWidth(), prm.GetScreenHeight())
 	}
 }
 

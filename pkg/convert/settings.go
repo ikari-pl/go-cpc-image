@@ -1,6 +1,8 @@
 // Package convert provides image conversion parameters and configuration.
 package convert
 
+import "github.com/ikari-pl/go-cpc-image/pkg/cpc"
+
 // SizeMode defines how the source image should be sized for conversion.
 type SizeMode int
 
@@ -175,12 +177,63 @@ func (p *Settings) IsOverscan() bool {
 	return p.NumCols > 80 || p.NumLines > 200
 }
 
-// GetScreenWidth returns the screen width in pixels.
-func (p *Settings) GetScreenWidth() int {
-	return p.NumCols * 8
+// bufferTimeline reports whether this conversion keeps the fixed 640-dot
+// timeline instead of the screen's own grid. Only the EGX modes need it: their
+// two line phases hold different pixel counts (a mode-1 line follows a mode-0
+// one), so no single grid describes the picture and the timeline, with its
+// per-line pixel width, is the only uniform representation of it.
+func (p *Settings) bufferTimeline() bool {
+	return p.VirtualMode == 3 || p.VirtualMode == 4
 }
 
-// GetScreenHeight returns the screen height in pixels.
+// rowsPerLine is how many buffer rows one CRTC line occupies: one in the native
+// grid, two on the timeline.
+func (p *Settings) rowsPerLine() int {
+	if p.bufferTimeline() {
+		return 2
+	}
+	return 1
+}
+
+// CanvasRow maps a buffer row to the row the CPC lookups are indexed by: the
+// pen tables, the dither matrix and the CRTC line are all keyed at timeline
+// scale, i.e. two rows per line.
+func (p *Settings) CanvasRow(y int) int { return y * p.rowsPerLine() }
+
+// LineIndex maps a buffer row to its CRTC line.
+func (p *Settings) LineIndex(y int) int { return y / p.rowsPerLine() }
+
+// LineStep is the number of buffer rows one CRTC line occupies, i.e. the step
+// between the rows a line pair is read from.
+func (p *Settings) LineStep() int { return p.rowsPerLine() }
+
+// RowStep is the number of buffer rows one conversion step covers: one CRTC
+// line, or two when true-colour dithering averages a line pair.
+func (p *Settings) RowStep() int {
+	if p.TrueColorDither {
+		return p.rowsPerLine() * 2
+	}
+	return p.rowsPerLine()
+}
+
+// PixelStep is the number of buffer columns one picture pixel occupies: one in
+// the native grid, the mode's pixel width (Tx) on the timeline.
+func (p *Settings) PixelStep(y int) int {
+	if p.bufferTimeline() {
+		return cpc.PixelWidth(p.VirtualMode, y, p.YEgx)
+	}
+	return 1
+}
+
+// GetScreenWidth returns the width of the conversion buffer in pixels: the
+// screen's own grid (NumCols*8 divided by the mode's pixel width), or the fixed
+// timeline the EGX modes need.
+func (p *Settings) GetScreenWidth() int {
+	return p.NumCols * 8 / cpc.PixelWidth(p.VirtualMode, 0, p.YEgx)
+}
+
+// GetScreenHeight returns the height of the conversion buffer in rows: one row
+// per CRTC line, or two on the EGX timeline.
 func (p *Settings) GetScreenHeight() int {
-	return p.NumLines * 2
+	return p.NumLines * p.rowsPerLine()
 }

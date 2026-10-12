@@ -443,10 +443,11 @@ func TestDrawBitmapMode0(t *testing.T) {
 		t.Fatal("DrawBitmap returned nil")
 	}
 
-	// Width should be numCol*8 = 16, height = numLig*2 = 4
+	// The picture comes back on the screen's own grid: a mode-0 byte holds 2 picture
+	// pixels, so 2 columns are 4 pixels wide, and one row per CRTC line.
 	img := result.Image()
-	if img.Bounds().Dx() != 16 || img.Bounds().Dy() != 4 {
-		t.Errorf("Result size = %dx%d, want 16x4", img.Bounds().Dx(), img.Bounds().Dy())
+	if img.Bounds().Dx() != 4 || img.Bounds().Dy() != 2 {
+		t.Errorf("Result size = %dx%d, want 4x2", img.Bounds().Dx(), img.Bounds().Dy())
 	}
 }
 
@@ -546,27 +547,131 @@ func TestDrawBitmapHighVirtualMode(t *testing.T) {
 	}
 }
 
-// TestRenderToRGBA tests the RenderToRGBA convenience method
+// TestRenderToRGBA tests the RenderToRGBA convenience method: the screen's own
+// grid, one pixel per picture pixel and one row per CRTC line.
 func TestRenderToRGBA(t *testing.T) {
 	bmp := NewBitmapCpc(16, 4, 1) // 2 cols, 2 lines
 	img := bmp.RenderToRGBA()
 	if img == nil {
 		t.Fatal("RenderToRGBA returned nil")
 	}
-	if img.Bounds().Dx() != 16 || img.Bounds().Dy() != 4 {
-		t.Errorf("RenderToRGBA size = %dx%d, want 16x4", img.Bounds().Dx(), img.Bounds().Dy())
+	// A mode-1 byte holds 4 picture pixels, so 2 columns are 8 pixels wide.
+	if img.Bounds().Dx() != 8 || img.Bounds().Dy() != 2 {
+		t.Errorf("RenderToRGBA size = %dx%d, want 8x2", img.Bounds().Dx(), img.Bounds().Dy())
 	}
 }
 
 // TestRenderToRGBAOverscan tests RenderToRGBA with overscan dimensions
 func TestRenderToRGBAOverscan(t *testing.T) {
-	bmp := NewBitmapCpc(768, 544, 1)
+	bmp := NewBitmapCpc(768, 544, 1) // 96 cols, 272 lines
 	img := bmp.RenderToRGBA()
 	if img == nil {
 		t.Fatal("RenderToRGBA returned nil")
 	}
-	if img.Bounds().Dx() != 768 || img.Bounds().Dy() != 544 {
-		t.Errorf("Size = %dx%d, want 768x544", img.Bounds().Dx(), img.Bounds().Dy())
+	if img.Bounds().Dx() != 384 || img.Bounds().Dy() != 272 {
+		t.Errorf("Size = %dx%d, want 384x272", img.Bounds().Dx(), img.Bounds().Dy())
+	}
+
+	// The display canvas is that grid magnified — the mode's pixel width across,
+	// two rows per line — i.e. what the GUI shows.
+	display := bmp.RenderToRGBADisplay()
+	if display.Bounds().Dx() != 768 || display.Bounds().Dy() != 544 {
+		t.Errorf("Display size = %dx%d, want 768x544", display.Bounds().Dx(), display.Bounds().Dy())
+	}
+}
+
+// TestDrawBitmapNativeGrid pins the grid each standard mode renders on: one pixel
+// per picture pixel — NumCol bytes of 8/tx of them — and one row per CRTC line.
+func TestDrawBitmapNativeGrid(t *testing.T) {
+	for _, tc := range []struct {
+		mode  int
+		wantW int
+		wantH int
+	}{
+		{0, 40, 10},  // 20 bytes of 2 pixels
+		{1, 80, 10},  // 20 bytes of 4 pixels
+		{2, 160, 10}, // 20 bytes of 8 pixels
+	} {
+		bmp := NewBitmapCpc(160, 20, tc.mode) // 20 columns, 10 lines
+		img := bmp.DrawBitmap(bmp.NumCol, bmp.NumLig, 0, false).Image()
+		if img.Bounds().Dx() != tc.wantW || img.Bounds().Dy() != tc.wantH {
+			t.Errorf("mode %d: grid = %dx%d, want %dx%d",
+				tc.mode, img.Bounds().Dx(), img.Bounds().Dy(), tc.wantW, tc.wantH)
+		}
+	}
+}
+
+// TestRenderToRGBADisplayIsTheMagnifiedGrid pins that the display canvas holds the
+// same picture as the screen's own grid, magnified by whole pixels: the mode's
+// pixel width across and two rows per line. That is what makes the canvas a
+// display step and not the renderer's output.
+func TestRenderToRGBADisplayIsTheMagnifiedGrid(t *testing.T) {
+	for mode := 0; mode <= 2; mode++ {
+		bmp := NewBitmapCpc(160, 20, mode) // 20 columns, 10 lines
+		// A pattern that changes from byte to byte, so a wrong magnification shows
+		// up as a colour in the wrong place instead of hiding in flat areas.
+		for i := 0; i < 0x4000; i++ {
+			bmp.ScreenData[i] = byte(i*37 + i/7)
+		}
+
+		native := bmp.RenderToRGBA()
+		display := bmp.RenderToRGBADisplay()
+		tx := cpc.PixelWidth(mode, 0, 0)
+
+		if display.Bounds().Dx() != bmp.NumCol<<3 || display.Bounds().Dy() != bmp.NumLig<<1 {
+			t.Fatalf("mode %d: display = %dx%d, want %dx%d", mode,
+				display.Bounds().Dx(), display.Bounds().Dy(), bmp.NumCol<<3, bmp.NumLig<<1)
+		}
+		if display.Bounds().Dx() != native.Bounds().Dx()*tx ||
+			display.Bounds().Dy() != native.Bounds().Dy()*2 {
+			t.Fatalf("mode %d: display %dx%d is not the %dx%d grid magnified by %dx2", mode,
+				display.Bounds().Dx(), display.Bounds().Dy(),
+				native.Bounds().Dx(), native.Bounds().Dy(), tx)
+		}
+
+		nativeW := native.Bounds().Dx()
+		for y := 0; y < display.Bounds().Dy(); y++ {
+			for x := 0; x < display.Bounds().Dx(); x++ {
+				di := display.PixOffset(x, y)
+				si := (y/2)*nativeW*4 + (x/tx)*4
+				if display.Pix[di] != native.Pix[si] ||
+					display.Pix[di+1] != native.Pix[si+1] ||
+					display.Pix[di+2] != native.Pix[si+2] {
+					t.Fatalf("mode %d: display (%d,%d) is not grid pixel (%d,%d)",
+						mode, x, y, x/tx, y/2)
+				}
+			}
+		}
+	}
+}
+
+// TestRenderToRGBADisplayMatchesTheCanvasDrawing pins that the magnified grid is
+// the very canvas the renderer used to draw for the GUI, pixel for pixel, so the
+// display path is untouched by the output stage's change.
+func TestRenderToRGBADisplayMatchesTheCanvasDrawing(t *testing.T) {
+	for mode := 0; mode <= 2; mode++ {
+		bmp := NewBitmapCpc(160, 20, mode) // 20 columns, 10 lines
+		for i := 0; i < 0x4000; i++ {
+			bmp.ScreenData[i] = byte(i*37 + i/7)
+		}
+
+		want := bmp.drawCanvas(bmp.NumCol, bmp.NumLig, 0, false).Image()
+		got := bmp.RenderToRGBADisplay()
+
+		if got.Bounds() != want.Bounds() {
+			t.Fatalf("mode %d: display %v, canvas %v", mode, got.Bounds(), want.Bounds())
+		}
+		for y := 0; y < want.Bounds().Dy(); y++ {
+			for x := 0; x < want.Bounds().Dx(); x++ {
+				wi := want.PixOffset(x, y)
+				gi := got.PixOffset(x, y)
+				if got.Pix[gi] != want.Pix[wi] || got.Pix[gi+1] != want.Pix[wi+1] ||
+					got.Pix[gi+2] != want.Pix[wi+2] {
+					t.Fatalf("mode %d: display (%d,%d) = %v, canvas = %v", mode, x, y,
+						got.Pix[gi:gi+4], want.Pix[wi:wi+4])
+				}
+			}
+		}
 	}
 }
 

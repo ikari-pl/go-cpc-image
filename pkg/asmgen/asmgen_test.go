@@ -744,6 +744,13 @@ func TestGenerateKitPalette(t *testing.T) {
 	if !strings.Contains(s, "DW") {
 		t.Error("missing DW")
 	}
+	// 0x123 (V=1, B=2, R=3) is stored as 0x132: bits 8-11 keep the green level
+	// and the low byte's nibbles are swapped, the same order the .kit loader
+	// decodes and the reference screens use. Writing it any other way cannot be
+	// read back.
+	if !strings.Contains(s, "#132") {
+		t.Errorf("KIT word must be #132 (the loader's inverse), got: %q", s)
+	}
 }
 
 func TestGeneratePaletteTransition(t *testing.T) {

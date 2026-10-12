@@ -375,7 +375,7 @@ func (app *Application) countUsedPens() int {
 			}
 		}
 
-		cpcAddr := cpc.CpcAddress(y, b.NumCol, b.NumLig)
+		cpcAddr := cpc.CpcAddress(y>>1, b.NumCol, b.NumLig)
 
 		for x := 0; x < b.NumCol; x++ {
 			addr := cpcAddr + x
@@ -562,8 +562,9 @@ func (app *Application) renderCpcToRGBA() *image.RGBA {
 		)
 	}
 
-	// Use the render package to convert CPC screen data to RGBA
-	return app.cpcImage.BitmapCpc.RenderToRGBA()
+	// Use the render package to convert CPC screen data to RGBA. The display canvas
+	// is what the preview and the GUI's own PNG export show.
+	return app.cpcImage.BitmapCpc.RenderToRGBADisplay()
 }
 
 // GetParams returns the current conversion parameters.

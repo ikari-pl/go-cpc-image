@@ -55,7 +55,7 @@ Missing:
 ### 4.1 Import Formats
 - [ ] **SNA** (Z80 snapshot) import — extract screen memory from snapshot files
 - [ ] **OCP** compression (MJH header) — used by OCP Art Studio
-- [ ] **PKS variants** (PKSL, PKS3, PKSP, PKVL, PKVP) — proprietary packed formats
+- [x] **PKS variants** (PKSL, PKS3, PKSP, PKVL, PKVP) — proprietary packed formats
 - [ ] **Kit** palette format
 - C# source: `SauveImage.cs`, `BitmapCpc.cs`
 

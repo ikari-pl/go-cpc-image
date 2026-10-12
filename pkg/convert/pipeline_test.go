@@ -48,9 +48,11 @@ func TestMode0EncodeDecodeRoundtrip(t *testing.T) {
 	// Decode back
 	result := bmpCpc.DrawBitmap(numCol, numLig, 0, false)
 
-	// Verify each pen roundtripped correctly at y=0
+	// Verify each pen roundtripped correctly at y=0. The picture comes back on the
+	// screen's own grid — one rendered pixel per picture pixel — so pen p sits at
+	// x=p, whatever column the canvas fixture wrote it as.
 	for pen := 0; pen < 16; pen++ {
-		x := pen * 4
+		x := pen
 		got := result.GetPixelColor(x, 0)
 		expected := cpc.GetColor(pen, false)
 
@@ -84,8 +86,10 @@ func TestMode1EncodeDecodeRoundtrip(t *testing.T) {
 	bmpCpc.EncodeToCpc(displayBmp, false, 0)
 	result := bmpCpc.DrawBitmap(numCol, numLig, 0, false)
 
+	// The screen's own grid again: mode 1 holds 4 picture pixels per byte, so the
+	// pens come back at x=0..3.
 	for pen := 0; pen < 4; pen++ {
-		x := pen * 2
+		x := pen
 		got := result.GetPixelColor(x, 0)
 		expected := cpc.GetColor(bmpCpc.Palette[pen], false)
 
@@ -152,24 +156,26 @@ func TestSetPixelCpcWritesCorrectColor(t *testing.T) {
 }
 
 // TestCpcAddressSanity verifies CPC address calculations for known positions.
+// The argument is a CRTC line, so consecutive lines are 0x800 apart and the
+// next character row follows eight lines later.
 func TestCpcAddressSanity(t *testing.T) {
 	tests := []struct {
-		y, numCol, numLig int
-		wantAddr          int
+		line, numCol, numLig int
+		wantAddr             int
 	}{
-		// Standard screen: y=0 → addr=0
+		// Standard screen: line 0 → addr=0
 		{0, 80, 200, 0},
-		// y=2 → same row group, next scanline pair → 0x800
-		{2, 80, 200, 0x800},
-		// y=16 → next character row → 80
-		{16, 80, 200, 80},
+		// line 1 → next scanline → 0x800
+		{1, 80, 200, 0x800},
+		// line 8 → next character row → 80
+		{8, 80, 200, 80},
 	}
 
 	for _, tt := range tests {
-		got := cpc.CpcAddress(tt.y, tt.numCol, tt.numLig)
+		got := cpc.CpcAddress(tt.line, tt.numCol, tt.numLig)
 		if got != tt.wantAddr {
-			t.Errorf("CpcAddress(y=%d, numCol=%d, numLig=%d) = 0x%04X, want 0x%04X",
-				tt.y, tt.numCol, tt.numLig, got, tt.wantAddr)
+			t.Errorf("CpcAddress(line=%d, numCol=%d, numLig=%d) = 0x%04X, want 0x%04X",
+				tt.line, tt.numCol, tt.numLig, got, tt.wantAddr)
 		}
 	}
 }
@@ -188,8 +194,8 @@ func TestConvertPipeline_SolidColorPreservedThroughQuantization(t *testing.T) {
 	prm.NumLines = 200
 	prm.Pct = 0 // No dithering
 
-	width := prm.GetScreenWidth()   // 640
-	height := prm.GetScreenHeight() // 400
+	width := prm.GetScreenWidth()   // 160: the screen's own grid
+	height := prm.GetScreenHeight() // 200
 
 	source := bitmap.NewDirectBitmap(width, height)
 	for y := 0; y < height; y++ {
@@ -294,19 +300,32 @@ func TestFullPipelineStripes(t *testing.T) {
 		}
 	}
 
-	// Verify the rendered output has correct stripes at known positions
-	rendered := bmpCpc.RenderToRGBA()
+	// Verify the rendered output has correct stripes at known positions.
+	// RenderToRGBADisplay draws the display canvas (NumCols*8 x NumLig*2) the
+	// screen's own grid is magnified onto, so a picture pixel sits at the mode's
+	// pixel width there.
+	rendered := bmpCpc.RenderToRGBADisplay()
+	canvasW := rendered.Rect.Dx()
+	canvasH := rendered.Rect.Dy()
+	pixW := cpc.PixelWidth(prm.VirtualMode, 0, prm.YEgx)
+	if pixW < 1 {
+		pixW = 1
+	}
+	rowW := canvasH / height
+	if rowW < 1 {
+		rowW = 1
+	}
 	for _, stripeIdx := range []int{0, 1, 2, 3} {
-		// Sample from the middle of each stripe
-		x := (stripeIdx*width/len(stripeColors) + width/len(stripeColors)/2)
+		// Sample from the middle of each stripe, on the canvas grid
+		x := (stripeIdx*width/len(stripeColors) + width/len(stripeColors)/2) * pixW
 		x = x &^ 3 // Align to 4-pixel boundary (Mode 0)
-		y := height / 2
+		y := (height / 2) * rowW
 		y = y &^ 1 // Align to even scanline
 
 		expected := cpc.CpcRgbPalette[stripeColors[stripeIdx]]
-		r := rendered.Pix[(y*width+x)*4+0]
-		g := rendered.Pix[(y*width+x)*4+1]
-		b := rendered.Pix[(y*width+x)*4+2]
+		r := rendered.Pix[(y*canvasW+x)*4+0]
+		g := rendered.Pix[(y*canvasW+x)*4+1]
+		b := rendered.Pix[(y*canvasW+x)*4+2]
 
 		if r != expected.R || g != expected.V || b != expected.B {
 			t.Errorf("Stripe %d at (%d,%d): got RGB(%d,%d,%d), want RGB(%d,%d,%d)",
@@ -525,7 +544,7 @@ func TestPass1DoesNotCorruptColors(t *testing.T) {
 	// Build contrast lookup table (normally done by Convert)
 	c := float64(prm.PctContrast) / 100.0
 	for i := 0; i < 256; i++ {
-		state.ContrastTable[i] = MinMaxByte(((float64(i)/255.0-0.5)*c+0.5)*255.0)
+		state.ContrastTable[i] = MinMaxByte(((float64(i)/255.0-0.5)*c + 0.5) * 255.0)
 	}
 	ConvertPass1(source, prm, state)
 
@@ -664,16 +683,16 @@ func TestCpcPlusColorConsistency(t *testing.T) {
 // Format: 0x0GBR — Green bits 11-8, Blue bits 7-4, Red bits 3-0.
 func TestCpcPlusColorEncoding(t *testing.T) {
 	tests := []struct {
-		colorVal    int
+		colorVal            int
 		wantR, wantG, wantB uint8
 	}{
-		{0x000, 0, 0, 0},           // Black
-		{0x00F, 255, 0, 0},         // Full red
-		{0xF00, 0, 255, 0},         // Full green
-		{0x0F0, 0, 0, 255},         // Full blue
-		{0xFFF, 255, 255, 255},     // White
-		{0x500, 0, 85, 0},          // Green=5 → 5*17=85
-		{0x073, 51, 0, 119},        // R=3→51, B=7→119
+		{0x000, 0, 0, 0},       // Black
+		{0x00F, 255, 0, 0},     // Full red
+		{0xF00, 0, 255, 0},     // Full green
+		{0x0F0, 0, 0, 255},     // Full blue
+		{0xFFF, 255, 255, 255}, // White
+		{0x500, 0, 85, 0},      // Green=5 → 5*17=85
+		{0x073, 51, 0, 119},    // R=3→51, B=7→119
 	}
 
 	for _, tt := range tests {
@@ -763,15 +782,15 @@ func TestCpcPlusQuantizationLogic(t *testing.T) {
 		input uint8
 		want  uint8
 	}{
-		{0, 0},       // 0>>4=0, 0*17=0
-		{100, 102},   // 100>>4=6, 6*17=102
-		{150, 153},   // 150>>4=9, 9*17=153
-		{200, 204},   // 200>>4=12, 12*17=204
-		{255, 255},   // 255>>4=15, 15*17=255
-		{17, 17},     // Already a CPC+ level
-		{16, 17},     // 16>>4=1, 1*17=17
-		{33, 34},     // 33>>4=2, 2*17=34
-		{128, 119},   // 128>>4=8... wait, 128>>4=8, 8*17=136
+		{0, 0},     // 0>>4=0, 0*17=0
+		{100, 102}, // 100>>4=6, 6*17=102
+		{150, 153}, // 150>>4=9, 9*17=153
+		{200, 204}, // 200>>4=12, 12*17=204
+		{255, 255}, // 255>>4=15, 15*17=255
+		{17, 17},   // Already a CPC+ level
+		{16, 17},   // 16>>4=1, 1*17=17
+		{33, 34},   // 33>>4=2, 2*17=34
+		{128, 119}, // 128>>4=8... wait, 128>>4=8, 8*17=136
 	}
 	// Fix the expected values using the actual formula
 	tests[8].want = 136 // 128>>4=8, 8*17=136

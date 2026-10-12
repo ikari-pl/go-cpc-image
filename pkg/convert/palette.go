@@ -297,10 +297,7 @@ func QuantizePalette(img *bitmap.DirectBitmap, prm *Settings) {
 	// Calculate screen dimensions and step
 	width := prm.GetScreenWidth()
 	height := prm.GetScreenHeight()
-	stepY := 2
-	if prm.TrueColorDither {
-		stepY = 4
-	}
+	stepY := prm.RowStep()
 
 	// Run k-means for specified number of passes
 	for p := 0; p < prm.KMeansPass; p++ {
@@ -311,7 +308,7 @@ func QuantizePalette(img *bitmap.DirectBitmap, prm *Settings) {
 
 		// Assign pixels to clusters
 		for y := 0; y < height; y += stepY {
-			Tx := cpc.PixelWidth(prm.VirtualMode, y, 0)
+			Tx := prm.PixelStep(y)
 			for x := 0; x < width; x += Tx {
 				color := img.GetPixelColor(x, y)
 				FindNearestCluster(prm, color, clusters)
@@ -326,7 +323,7 @@ func QuantizePalette(img *bitmap.DirectBitmap, prm *Settings) {
 
 	// Apply quantized colors back to image
 	for y := 0; y < height; y += stepY {
-		Tx := cpc.PixelWidth(prm.VirtualMode, y, 0)
+		Tx := prm.PixelStep(y)
 		for x := 0; x < width; x += Tx {
 			originalColor := img.GetPixelColor(x, y)
 			nearest := FindNearestCluster(prm, originalColor, clusters)

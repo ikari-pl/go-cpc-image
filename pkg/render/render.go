@@ -111,32 +111,44 @@ func (b *BitmapCpc) EncodeToCpc(bmpLock *bitmap.DirectBitmap, egx bool, ligneSta
 		b.ScreenData[i] = 0
 	}
 
-	width := b.NumCol << 3  // Convert columns to pixels
-	height := b.NumLig << 1  // Convert lines to pixels
+	// The bitmap holds one pixel per picture pixel, and its size says which model
+	// wrote it: one buffer row per CRTC line (the screen's own grid) or two (the
+	// fixed timeline the EGX modes need). The picture pixels a byte holds are then
+	// bmpWidth/NumCol apart in the buffer — 1 in the native grid, the mode's
+	// pixel width on the timeline — which is how convert lays it out.
+	bmpW, bmpH := bmpLock.Width(), bmpLock.Height()
+	if bmpW <= 0 || bmpH <= 0 || b.NumCol <= 0 || b.NumLig <= 0 {
+		return
+	}
+	rowsPerLine := bmpH / b.NumLig
+	if rowsPerLine < 1 {
+		rowsPerLine = 1
+	}
+	perByte := 8 / cpc.PixelWidth(b.VirtualMode, 0, 0)
+	step := bmpW / (b.NumCol * perByte)
+	if step < 1 {
+		step = 1
+	}
 
-	// Process each scanline pair
-	for y := 0; y < height; y += 2 {
-		cpcAddr := cpc.CpcAddress(y, b.NumCol, b.NumLig)
-		tx := cpc.PixelWidth(b.VirtualMode, y, 0)
+	for line := 0; line < b.NumLig; line++ {
+		cpcAddr := cpc.CpcAddress(line, b.NumCol, b.NumLig)
+		y := line * rowsPerLine
 
-		// Process each byte (8 pixels)
-		for x := 0; x < width; x += 8 {
+		for col := 0; col < b.NumCol; col++ {
+			if egx && (line&1) != ligneStart {
+				continue // the other line phase owns this row
+			}
 			var pixByte byte = 0
 			decal := 0
-
-			// Skip EGX lines if not in the right phase
-			if !egx || ((y>>1)&1) == ligneStart {
-				// Pack pixels into byte according to mode
-				for p := 0; p < 8; p += tx {
-					pen := cpc.GetPenColor(bmpLock, x+p, y, b.Palette, b.CpcPlus)
-					pixByte |= byte(cpc.TabOctetMode[pen] >> uint(decal))
-					decal++
-				}
-				// Bounds check for ScreenData array
-				addr := cpcAddr + (x >> 3)
-				if addr < len(b.ScreenData) {
-					b.ScreenData[addr] = pixByte
-				}
+			for p := 0; p < perByte; p++ {
+				x := (col*perByte + p) * step
+				pen := cpc.GetPenColor(bmpLock, x, y, b.Palette, b.CpcPlus)
+				pixByte |= byte(cpc.TabOctetMode[pen] >> uint(decal))
+				decal++
+			}
+			addr := cpcAddr + col
+			if addr < len(b.ScreenData) {
+				b.ScreenData[addr] = pixByte
 			}
 		}
 	}
@@ -154,7 +166,7 @@ func (b *BitmapCpc) EncodeToCpcForceMode1(bmpLock *bitmap.DirectBitmap) {
 	height := b.NumLig << 1
 
 	for y := 0; y < height; y += 2 {
-		cpcAddr := cpc.CpcAddress(y, b.NumCol, b.NumLig)
+		cpcAddr := cpc.CpcAddress(y>>1, b.NumCol, b.NumLig)
 		tx := cpc.PixelWidth(b.VirtualMode, y, 0)
 		maxPen := cpc.MaxPen(b.VirtualMode, y, 0)
 
@@ -197,9 +209,98 @@ func (b *BitmapCpc) EncodeToCpcForceMode1(bmpLock *bitmap.DirectBitmap) {
 	}
 }
 
-// DrawBitmap renders CPC screen memory to a displayable bitmap.
-// This decodes the packed CPC format back into individual pixels.
+// DrawBitmap renders CPC screen memory to a bitmap.
+//
+// The standard modes 0/1/2 give every line the same pixel width, so their picture
+// is drawn on the screen's own grid: one bitmap pixel per picture pixel, one row
+// per CRTC line (drawNative). The modes whose lines do not share one pixel width —
+// EGX 3/4, which alternate two of them — and the modes carrying a per-line or
+// per-column table (Mode X 5, Split 6, the ASCII modes, sprites) keep the fixed
+// display canvas of numCol*8 x numLig*2 dot positions, the only grid that can hold
+// them (drawCanvas).
 func (b *BitmapCpc) DrawBitmap(numCol, numLig int, realWidth int, isSprite bool) *bitmap.DirectBitmap {
+	if !isSprite && b.nativeGrid() {
+		return b.drawNative(numCol, numLig, realWidth)
+	}
+	return b.drawCanvas(numCol, numLig, realWidth, isSprite)
+}
+
+// nativeGrid reports whether the screen's lines all hold the same number of
+// picture pixels, so the screen's own grid describes the picture exactly.
+func (b *BitmapCpc) nativeGrid() bool {
+	return b.VirtualMode >= 0 && b.VirtualMode <= 2
+}
+
+// drawNative draws the screen on its own grid: numCol*8/tx pixels across, tx being
+// the mode's pixel width, and one row per CRTC line. A realWidth larger than the
+// grid asks for a wider picture, and then a whole number of bitmap pixels is spent
+// on each picture pixel. Magnifying the result by tx across and two rows down
+// rebuilds the display canvas pixel for pixel.
+func (b *BitmapCpc) drawNative(numCol, numLig, realWidth int) *bitmap.DirectBitmap {
+	tx := cpc.PixelWidth(b.VirtualMode, 0, 0)
+	if tx < 1 {
+		tx = 1
+	}
+	nativeW := numCol * 8 / tx
+
+	width := nativeW
+	if realWidth > nativeW {
+		width = realWidth
+	}
+	step := 1
+	if nativeW > 0 && width > nativeW {
+		step = width / nativeW
+	}
+
+	loc := bitmap.NewDirectBitmap(width, numLig)
+
+	for line := 0; line < numLig; line++ {
+		cpcAddr := cpc.CpcAddress(line, numCol, numLig)
+		x := 0
+
+		for col := 0; col < numCol; col++ {
+			addr := cpcAddr + col
+			var pixByte byte = 0
+			if addr < len(b.ScreenData) {
+				pixByte = b.ScreenData[addr]
+			}
+
+			put := func(pen int) {
+				c := cpc.PaletteColor(b.Palette[pen], b.CpcPlus)
+				for i := 0; i < step; i++ {
+					loc.SetPixel(x+i, line, c)
+				}
+				x += step
+			}
+
+			switch b.VirtualMode {
+			case 0: // Mode 0: 2 pixels per byte, 16 colors
+				put(int(pixByte>>7) + int((pixByte&0x20)>>3) + int((pixByte&0x08)>>2) + int((pixByte&0x02)<<2))
+				put(int((pixByte&0x40)>>6) + int((pixByte&0x10)>>2) + int((pixByte&0x04)>>1) + int((pixByte&0x01)<<3))
+
+			case 1: // Mode 1: 4 pixels per byte, 4 colors
+				put(int((pixByte>>7)&1) + int((pixByte>>2)&2))
+				put(int((pixByte>>6)&1) + int((pixByte>>1)&2))
+				put(int((pixByte>>5)&1) + int((pixByte>>0)&2))
+				put(int((pixByte>>4)&1) + int((pixByte<<1)&2))
+
+			case 2: // Mode 2: 8 pixels per byte, 2 colors
+				for i := 8; i > 0; i-- {
+					put(int(pixByte>>uint(i-1)) & 1)
+				}
+			}
+		}
+	}
+
+	return loc
+}
+
+// drawCanvas draws the screen on the fixed display canvas the renderer has always
+// used: numCol*8 dot positions across and two rows per CRTC line, so a mode-0 pixel
+// spans 4 of those dots, a mode-1 pixel 2 and a mode-2 pixel 1. It is what a screen
+// is magnified onto for display, and the only grid that can hold a screen whose
+// lines have different pixel widths.
+func (b *BitmapCpc) drawCanvas(numCol, numLig int, realWidth int, isSprite bool) *bitmap.DirectBitmap {
 	width := realWidth
 	if realWidth == 0 {
 		width = numCol << 3
@@ -225,7 +326,7 @@ func (b *BitmapCpc) DrawBitmap(numCol, numLig int, realWidth int, isSprite bool)
 		if isSprite {
 			cpcAddr = numCol * (y >> 1)
 		} else {
-			cpcAddr = cpc.CpcAddress(y, numCol, numLig)
+			cpcAddr = cpc.CpcAddress(y>>1, numCol, numLig)
 		}
 
 		xBitmap := 0
@@ -332,8 +433,25 @@ func (b *BitmapCpc) Render(bmp *bitmap.DirectBitmap, offsetX int) *bitmap.Direct
 	return bmp
 }
 
-// RenderToRGBA creates an RGBA image from the CPC screen data for display in GUI
+// RenderToRGBA creates an RGBA image from the CPC screen data: the grid the
+// screen's own pixels define (see DrawBitmap), one pixel per picture pixel and one
+// row per CRTC line. The modes that have no such grid — EGX 3/4 and the ones with
+// per-line tables — come back on the display canvas.
+//
+// This is the picture the output stage starts from: reaching the grid a file is
+// written at is that stage's job, done by duplicating whole pixels.
 func (b *BitmapCpc) RenderToRGBA() *image.RGBA {
 	bmp := b.DrawBitmap(b.NumCol, b.NumLig, 0, false)
 	return bmp.Image()
+}
+
+// RenderToRGBADisplay creates the RGBA image the GUI shows: the display canvas of
+// NumCol*8 x NumLig*2 dot positions, i.e. the screen's own grid magnified by whole
+// pixels — the mode's pixel width across, two rows per line — so it is the same
+// picture as RenderToRGBA, only bigger. Nothing but a display goes through here.
+func (b *BitmapCpc) RenderToRGBADisplay() *image.RGBA {
+	if !b.nativeGrid() {
+		return b.DrawBitmap(b.NumCol, b.NumLig, 0, false).Image()
+	}
+	return bitmap.ScaleImage(b.RenderToRGBA(), b.NumCol<<3, b.NumLig<<1)
 }
